@@ -1,3 +1,6 @@
+#define FASTLED_ALLOW_INTERRUPTS 0
+#define FASTLED_ESP8266_NODEMCU_PIN_ORDER
+
 #include <Arduino.h>
 #include <MQTTClient.h>
 #include <ESP8266WiFi.h>
@@ -8,12 +11,12 @@ WiFiClient net;
 MQTTClient client;
 
 #define NUM_LEDS 150
-#define DATA_PIN 6
+#define DATA_PIN 5
 
 CRGB leds[NUM_LEDS];
 
 // use first channel of 16 channels (started from zero)
-#define LEDC_CHANNEL_0 0
+#define LEDC_CHANNEL_0 6
 
 // use 13 bit precission for LEDC timer
 #define LEDC_TIMER_13_BIT 13
@@ -63,18 +66,29 @@ void messageReceived(String &topic, String &payload)
         if (topic == String("/light/diningRoom/brightness"))
         {
                 brightness = payload.toInt();
+                client.publish("/light/ack", "diningRoom b: " + String(brightness));
         }
         if (topic == String("/light/xmass"))
         {
+                if( payload == String("off") ){
+                   for( int i=0; i<150;i++) {
+                   leds[i] = CRGB(0,0,0);    
+                   }
+                   FastLED.show(); 
+                   client.publish("/light/ack", "xmass off");
+                }
+                else {
                 String colorString = payload.substring(0,7);
                 String ledString = payload.substring( 8 );
 
                 //string hexstring = "#FF3Fa0";
                 char ledStringBuffer[10];
                 ledString.toCharArray(ledStringBuffer,10);
+                char colorStringBuffer[10];
+                colorString.toCharArray(colorStringBuffer,10);
 
                 // Get rid of '#' and convert it to integer
-                int colorNumber = (int) strtol( &ledStringBuffer[1], NULL, 16);
+                int colorNumber = (int) strtol( &colorStringBuffer[1], NULL, 16);
 
                 // Split them up into r, g, b values
                 int r = colorNumber >> 16;
@@ -83,12 +97,18 @@ void messageReceived(String &topic, String &payload)
 
                 //leds[i] = CHSV(hue++, 255, 255);
                 int i = ledString.toInt();
-                leds[i] = CRGB(r,g,b);
+                leds[i] = CRGB(b,r,g);
 
                 //brightness = payload.toInt();
+                client.publish("/light/ack", "diningRoom l: " + String(i) 
+                        + " r: " + String(r)
+                        + " g: " + String(g)
+                        + " b: " + String(b)
+                        + " " + String(ledStringBuffer));
+                }
+                FastLED.show(); 
         }
 
-        client.publish("/light/ack", "diningRoom b: " + String(brightness));
 }
 
 void setup()
@@ -97,7 +117,7 @@ void setup()
         //ledcSetup(LEDC_CHANNEL_0, LEDC_BASE_FREQ, LEDC_TIMER_13_BIT);
         //ledcAttachPin(LED_PIN, LEDC_CHANNEL_0);
         analogWriteFreq(LEDC_BASE_FREQ);
-        analogWriteRange(1023);
+        //analogWriteRange(1023);
 
 
         WiFi.begin(ssid, pass);
@@ -106,8 +126,8 @@ void setup()
         client.onMessage(messageReceived);
         connect();
 
-	LEDS.addLeds<WS2812,DATA_PIN,RGB>(leds,NUM_LEDS);
-	LEDS.setBrightness(255);
+	LEDS.addLeds<WS2812,1,RGB>(leds,NUM_LEDS);
+	LEDS.setBrightness(250);
 }
 
 
@@ -128,16 +148,16 @@ void loop()
 
                 if( brightness != oldBrightness ){
                         if( brightness > oldBrightness ){
-                                oldBrightness--;
-                        }
-                        else{
                                 oldBrightness++;
                         }
-
-                ledcAnalogWrite(LEDC_CHANNEL_0, oldBrightness);
+                        else{
+                                oldBrightness--;
+                        }
+                client.publish("/light/ack", "diningRoom ob: " + String(oldBrightness*4));
+                analogWrite(12, oldBrightness*4);
                 }
 
                 // wait for 30 milliseconds to see the dimming effect
-                delay(30);
+                delay(3);
         }
 }
