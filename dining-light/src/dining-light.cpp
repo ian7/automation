@@ -33,6 +33,15 @@ int brightness = 0; // how bright the LED is
 int fadeAmount = 5; // how many points to fade the LED by
 int oldBrightness = 0;
 
+int xmassColorStart = 0x60;
+int xmassColorStop = 0x85;
+int xmassColor = xmassColorStart;
+int xmassDelay = 1000;
+int xmassBrigthness = 255;
+int xmassTimestamp = millis();
+int xmassDirection = 1;
+enum { up=1, down=-1} direction;
+
 // Arduino like analogWrite
 // value has to be between 0 and valueMax
 void ledcAnalogWrite(uint8_t channel, uint32_t value, uint32_t valueMax = 255)
@@ -58,16 +67,36 @@ void connect()
         }
         client.subscribe("/light/diningRoom/brightness");
         client.subscribe("/light/xmass");
+        client.subscribe("/light/xmass/brightness");
+        client.subscribe("/light/xmass/start");
+        client.subscribe("/light/xmass/stop");
+        client.subscribe("/light/xmass/delay");
 }
 
 void messageReceived(String &topic, String &payload)
 {
 
-        if (topic == String("/light/diningRoom/brightness"))
-        {
+        if (topic == String("/light/diningRoom/brightness")) {
                 brightness = payload.toInt();
                 client.publish("/light/ack", "diningRoom b: " + String(brightness));
         }
+        if (topic == String("/light/xmass/brightness")) {
+                xmassBrigthness = payload.toInt();
+                client.publish("/light/ack", "diningRoom xmass b: " + String(brightness));
+        }
+        if (topic == String("/light/xmass/start")) {
+                xmassColorStart = payload.toInt();
+                client.publish("/light/ack", "diningRoom xmass start: " + String(brightness));
+        }
+        if (topic == String("/light/xmass/stop")) {
+                xmassColorStop = payload.toInt();
+                client.publish("/light/ack", "diningRoom xmass stop: " + String(brightness));
+        }
+        if (topic == String("/light/xmass/delay")) {
+                xmassDelay = payload.toInt();
+                client.publish("/light/ack", "diningRoom xmass delay: " + String(brightness));
+        }
+
         if (topic == String("/light/xmass"))
         {
                 if (payload == String("off"))
@@ -170,9 +199,39 @@ void loop()
                         client.publish("/light/ack", "diningRoom ob: " + String(hardwareBrightness));
                         //analogWrite(12, oldBrightness * 4);
                         ledcWrite(0, hardwareBrightness);
+                        // wait for 30 milliseconds to see the dimming effect   
+                        delay(3);
+                }
+                else {
+                        delay(50);                
                 }
 
-                // wait for 30 milliseconds to see the dimming effect
-                delay(3);
+                // if the change delay has elapsed - let's pick next color
+                if( millis() - xmassTimestamp > xmassDelay ){
+                        xmassTimestamp = millis();
+
+                        // going up
+                        if( xmassDirection == up ){
+                                if( xmassColor < xmassColorStop ){
+                                        xmassColor++;
+                                }
+                                else {
+                                        xmassDirection = down;
+                                }
+                        }
+                        else{
+                        // going down
+                                if( xmassColor > xmassColorStart ){
+                                        xmassColor--;
+                                }
+                                else {
+                                        xmassDirection = up;
+                                }
+                        }
+                        for( int i=0; i<50;i++){
+                                leds[i] = CHSV(xmassColor, 255, xmassBrigthness);
+                        }
+                        FastLED.show();
+                }
         }
 }
