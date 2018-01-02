@@ -18,20 +18,16 @@ CRGB leds[NUM_LEDS];
 
 // use first channel of 16 channels (started from zero)
 #define LEDC_CHANNEL_0 0
-
 // use 13 bit precission for LEDC timer
 #define LEDC_TIMER_13_BIT 13
-
 // use 5000 Hz as a LEDC base frequency
 #define LEDC_BASE_FREQ 125
-//000
-
-// fade LED PIN (replace with LED_BUILTIN constant for built-in LED)
-#define LED_PIN 5
 
 int brightness = 0; // how bright the LED is
 int fadeAmount = 5; // how many points to fade the LED by
 int oldBrightness = 0;
+int oldPresence = 0;
+
 
 int xmassColorStart = 0x60;
 int xmassColorStop = 0x85;
@@ -152,6 +148,10 @@ void messageReceived(String &topic, String &payload)
 
 void setup()
 {
+
+        pinMode(21,INPUT);
+        //digitalWrite(21,LOW);
+
         // Setup timer and attach timer to a led pin
         ledcSetup(0, LEDC_BASE_FREQ, LEDC_TIMER_13_BIT);
         ledcAttachPin(23, 0);
@@ -201,10 +201,7 @@ void loop()
                         ledcWrite(0, hardwareBrightness);
                         // wait for 30 milliseconds to see the dimming effect   
                         delay(3);
-                }
-                else {
-                        delay(50);                
-                }
+                }                
 
                 // if the change delay has elapsed - let's pick next color
                 if( millis() - xmassTimestamp > xmassDelay ){
@@ -233,5 +230,14 @@ void loop()
                         }
                         FastLED.show();
                 }
+
+                int presence = digitalRead(21);        
+                if( presence != oldPresence ){
+                        client.publish("/light/diningRoom/presence", String(presence));                        
+                        oldPresence = presence;
+                }
+
+                delay(50);                
+
         }
 }
