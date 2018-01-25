@@ -6,7 +6,7 @@
             "request": "launch",
             "cwd": "${workspaceRoot}",
             "name": "PlatformIO Debugger",
-            "target": "c:/Users/Marcin/Documents/PlatformIO/Projects/171107-203254-nodemcuv2/.pioenvs/nodemcuv2/firmware.elf",
+            "target": "c:/Users/Marcin/Documents/PlatformIO/Projects/automation/bedroom-lights/.pioenvs/nodemcuv2/firmware.elf",
             "gdbpath": "C:/Users/Marcin/.platformio/penv/Scripts/piodebuggdb",
             "autorun": [ "source .pioinit" ]
         }

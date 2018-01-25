@@ -11,7 +11,6 @@
 WiFiClient net;
 MQTTClient client;
 
-
 // How many leds in your strip?
 #define NUM_LEDS 150
 
@@ -21,17 +20,13 @@ MQTTClient client;
 #define DATA_PIN 5
 #define CLOCK_PIN 2
 
-int red = 10;
-int green = 10;
-int blue = 10;
+int hue = 3;
+int saturation = 3;
+int brightness = 3;
 
-int hue = 10;
-int saturation = 10;
-int brightness = 10;
-
-int oldRed = red;
-int oldGreen = green;
-int oldBlue = blue;
+int oldBrightness = 10;
+int oldHue = 10;
+int oldSaturation = 10;
 
 // this is defined in wifi-password.h
 //const char ssid[] = "xxx";
@@ -40,139 +35,88 @@ int oldBlue = blue;
 // Define the array of leds
 CRGB leds[NUM_LEDS];
 
+void messageReceived(String &topic, String &payload)
+{
 
-void messageReceived(String &topic, String &payload) {
-  
-          if( topic == String("/light/hue") ) {
-                  if( payload == String("+") ){
-                    hue++;
-                  }
-                  else if( payload == String("-") ){
-                    hue--;
-                  }
-                  else{
-                    hue = payload.toInt();
-                  }
-                  client.publish("/light/ack","h: "+String(hue) + " s: " + String(saturation) + " b: " + String(brightness));
-          }
-          if( topic == String("/light/saturation") ) {
-                  if( payload == String("+") ){
-                    saturation++;
-                  }
-                  else if( payload == String("-") ){
-                    saturation--;
-                  }
-                  else{
-                    saturation = payload.toInt();
-                  }
-                  client.publish("/light/ack","h: "+String(hue) + " s: " + String(saturation) + " b: " + String(brightness));
-          }
-          if( topic == String("/light/brightness") ) {
-                  if( payload == String("+") ){
-                    brightness++;
-                  }
-                  else if( payload == String("-") ){
-                    brightness--;
-                  }
-                  else{
-                    brightness = payload.toInt();
-                  }
-  
-                  client.publish("/light/ack","h: "+String(hue) + " s: " + String(saturation) + " b: " + String(brightness));
-          }
-  
-          if( topic == String("/light/red") ) {
-                  red = payload.toInt();
-                  client.publish("/light/ack","red "+payload);
-          }
-          if( topic == String("/light/green") ) {
-                  red = payload.toInt();
-                  client.publish("/light/ack","green "+payload);
-          }
-          if( topic == String("/light/blue") ) {
-                  red = payload.toInt();
-                  client.publish("/light/ack","blue "+payload);
-          }
-          //show();
+  if (topic == String("/light/hue"))
+  {
+    hue = payload.toInt();
   }
-  
-void connect() {
-    while (WiFi.status() != WL_CONNECTED) {
-            delay(1000);
-    }
-
-    while (!client.connect("bedroom-light")) {
-            delay(1000);
-    }
-    client.subscribe("/light/red");
-    client.subscribe("/light/green");
-    client.subscribe("/light/blue");
-    client.subscribe("/light/hue");
-    client.subscribe("/light/saturation");
-    client.subscribe("/light/brightness");
-
-}
-
-
-void setup() { 
-  LEDS.addLeds<WS2812B,DATA_PIN>(leds,NUM_LEDS,0);
-  LEDS.setBrightness(250);
-    WiFi.mode(WIFI_STA);
-      WiFi.begin(ssid, pass);
-
-        // Note: Local domain names (e.g. "Computer.local" on OSX) are not supported by Arduino.
-        // You need to set the IP address directly.
-        client.begin("10.10.1.3", net);
-        client.onMessage(messageReceived);
-      connect(); 
-
-}
-
-//void fadeall() { for(int i = 0; i < NUM_LEDS; i++) { leds[i].nscale8(250); } }
-
-
-
-void loop() { 
-  
-  while( true ){
-
-        client.loop();
-
-        if (!client.connected()) {
-                connect();
-        }
-
-    
-  // First slide the led in one direction
-  for(int i = 0; i < NUM_LEDS; i++) {
-    // Set the i'th led to red 
-    CHSV newColor = CHSV(hue, saturation, brightness);
-    hsv2rgb_rainbow(newColor,leds[i]);
-    // Show the leds
-    }
-    FastLED.show(); 
-    delay(5);
+  if (topic == String("/light/saturation"))
+  {
+    saturation = payload.toInt();
+  }
+  if (topic == String("/light/brightness"))
+  {
+    brightness = payload.toInt();
   }
 }
 
+void connect()
+{
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(1000);
+  }
 
-
-
-
-/*
-void setup() {
-    // put your setup code here, to run once:
-    pinMode(1, OUTPUT);
+  while (!client.connect("bedroom-light"))
+  {
+    delay(1000);
+  }
+  client.subscribe("/light/hue");
+  client.subscribe("/light/saturation");
+  client.subscribe("/light/brightness");
 }
 
-void loop() {
-    // put your main code here, to run repeatedly:
-    digitalWrite(1, HIGH);   // Turn on the LED
-    
-      delay(1000);              // Wait for one second
-    
-      digitalWrite(1, LOW);    // Turn off the LED
-    
-      delay(1000);     
+void setup()
+{
+  LEDS.addLeds<WS2812B, DATA_PIN>(leds, NUM_LEDS, 0);
+  LEDS.setBrightness(255);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, pass);
+
+  client.begin("10.10.1.3", net);
+  client.onMessage(messageReceived);
+  connect();
+
+  delay(1000);
+
+  hue = 0;
+  saturation = 0;
+  brightness = 0;
+  client.publish("/light/brightness", "0");
 }
-*/
+
+void loop()
+{
+
+  while (true)
+  {
+    delay(100);
+
+    client.loop();
+    if (!client.connected())
+    {
+      connect();
+    }
+
+    if (brightness != oldBrightness || hue != oldHue || saturation != oldSaturation)
+    {
+
+      oldBrightness = brightness;
+      oldHue = hue;
+      oldSaturation = saturation;
+
+      client.publish("/light/ack", "h: " + String(hue) + " s: " + String(saturation) + " b: " + String(brightness));
+
+      for (int i = 0; i < NUM_LEDS; i++)
+      {
+        CHSV newColor = CHSV(oldHue, oldSaturation, oldBrightness);
+        hsv2rgb_rainbow(newColor, leds[i]);
+      }
+      FastLED.show();
+      delay(5);
+    }
+  }
+}
