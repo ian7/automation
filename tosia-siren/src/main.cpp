@@ -1,10 +1,13 @@
 #include <Arduino.h>
-#include <MQTTClient.h>
+#include <ESPmDNS.h>
+#include <WiFiUdp.h>
+#include <PubSubClient.h>
+#include <ArduinoOTA.h>
 #include <WiFi.h>
 #include "wifi-password.h"
 
 WiFiClient net;
-MQTTClient client;
+PubSubClient client(net);
 
 int lights[12];
 
@@ -18,49 +21,61 @@ int signalCount = 0;
 // this is defined in wifi-password.h
 //const char ssid[] = "xxx";
 //const char pass[] = "xxx";
+
+void publish( const String &topic, const String &payload){
+    unsigned char topicChars[100];
+    unsigned char payloadChars[100];
+    topic.getBytes(topicChars,100);
+    payload.getBytes(payloadChars,100);
+    client.publish((char *) topicChars, (char *) payloadChars);//,false,1);
+}
+
 void messageReceived(String &topic, String &payload)
 {
   if (topic == String("/tosia/siren/mode"))
   {
     sirenMode = payload.toInt();
-    client.publish("/tosia/siren/ack", "mode: " + payload);
+    publish("/tosia/siren/ack", "mode: " + payload);
   }
 
   if (topic == String("/tosia/siren/delay"))
   {
     sirenDelay = payload.toInt();
-    client.publish("/tosia/siren/ack", "delay: " + payload);
+    publish("/tosia/siren/ack", "delay: " + payload);
   }
 
   if (topic == String("/tosia/signal/length"))
   {
     signalLength = payload.toInt();
-    client.publish("/tosia/siren/ack", "signalLength: " + payload);
+    publish("/tosia/siren/ack", "signalLength: " + payload);
   }
 
   if (topic == String("/tosia/signal/delay"))
   {
     signalDelay = payload.toInt();
-    client.publish("/tosia/siren/ack", "signalDelay: " + payload);
+    publish("/tosia/siren/ack", "signalDelay: " + payload);
   }
 
-  if (topic == String("/tosia/signal/count"))
-  {
+  if (topic == String("/tosia/signal/count"))  {
     signalCount = payload.toInt();
-    client.publish("/tosia/siren/ack", "signalCount: " + payload);
+    publish("/tosia/siren/ack", "signalCount: " + payload);
   }
+}
+
+void pubSubCallback(char* topic, byte* payload, unsigned int length){
+    String payloadString = String((char*)payload).substring(0,length);
+    String topicString = String(topic);
+    messageReceived(topicString, payloadString);
 }
 
 void connect()
 {
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(1000);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(200);
   }
 
-  while (!client.connect("tosia-siren"))
-  {
-    delay(1000);
+  while (!client.connect("tosia-siren")) {
+    delay(200);
   }
 }
 
@@ -71,7 +86,6 @@ void setup()
   lights[2] = 21;
   lights[3] = 19;
   lights[4] = 18;
-  //lights[5] = 13;
   lights[5] = 26;
   lights[6] = 27;
   lights[7] = 14;
@@ -81,8 +95,8 @@ void setup()
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, pass);
 
-  client.begin("10.10.4.1", net);
-  client.onMessage(messageReceived);
+  client.setServer("10.10.4.1",1883);
+  client.setCallback(pubSubCallback);
   connect();
 
   for (int i = 0; i < 11; i++)
@@ -91,11 +105,36 @@ void setup()
   }
   pinMode(17, OUTPUT);
 
-  client.subscribe("/tosia/siren/mode");
-  client.subscribe("/tosia/siren/delay");
-  client.subscribe("/tosia/signal/length");
-  client.subscribe("/tosia/signal/delay");
-  client.subscribe("/tosia/signal/count");
+  client.subscribe("/tosia/siren/+");
+  client.subscribe("/tosia/signal/+");
+  ArduinoOTA
+    .onStart([]() {
+      String type;
+      if (ArduinoOTA.getCommand() == U_FLASH)
+        type = "sketch";
+      else // U_SPIFFS
+        type = "filesystem";
+
+      // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+      Serial.println("Start updating " + type);
+    })
+    .onEnd([]() {
+      Serial.println("\nEnd");
+    })
+    .onProgress([](unsigned int progress, unsigned int total) {
+      Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+    })
+    .onError([](ota_error_t error) {
+      Serial.printf("Error[%u]: ", error);
+      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+      else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    });
+  ArduinoOTA.begin();
+  MDNS.begin("tosia-siren");
+  publish("/tosia-siren/IP",WiFi.localIP().toString());
 }
 
 void signalOn()
@@ -139,9 +178,9 @@ void loop()
 
   while (true)
   {
-
+    delay(50);
+    ArduinoOTA.handle();
     client.loop();
-
     if (!client.connected())
     {
       connect();
