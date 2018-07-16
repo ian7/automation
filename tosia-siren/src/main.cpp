@@ -17,17 +17,21 @@ int sirenDelay = 100;
 int signalLength = 100;
 int signalDelay = 400;
 int signalCount = 0;
+int signalPower = 50;
+bool isSignalOn = false;
+int signalSwitchTime = 0;
 
 // this is defined in wifi-password.h
 //const char ssid[] = "xxx";
 //const char pass[] = "xxx";
 
-void publish( const String &topic, const String &payload){
-    unsigned char topicChars[100];
-    unsigned char payloadChars[100];
-    topic.getBytes(topicChars,100);
-    payload.getBytes(payloadChars,100);
-    client.publish((char *) topicChars, (char *) payloadChars);//,false,1);
+void publish(const String &topic, const String &payload)
+{
+  unsigned char topicChars[100];
+  unsigned char payloadChars[100];
+  topic.getBytes(topicChars, 100);
+  payload.getBytes(payloadChars, 100);
+  client.publish((char *)topicChars, (char *)payloadChars); //,false,1);
 }
 
 void messageReceived(String &topic, String &payload)
@@ -56,27 +60,51 @@ void messageReceived(String &topic, String &payload)
     publish("/tosia/siren/ack", "signalDelay: " + payload);
   }
 
-  if (topic == String("/tosia/signal/count"))  {
+  if (topic == String("/tosia/signal/count"))
+  {
     signalCount = payload.toInt();
     publish("/tosia/siren/ack", "signalCount: " + payload);
   }
+
+  if (topic == String("/tosia/signal/power"))
+  {
+    signalPower = payload.toInt();
+    publish("/tosia/siren/ack", "signalPower: " + payload);
+  }
 }
 
-void pubSubCallback(char* topic, byte* payload, unsigned int length){
-    String payloadString = String((char*)payload).substring(0,length);
-    String topicString = String(topic);
-    messageReceived(topicString, payloadString);
+void pubSubCallback(char *topic, byte *payload, unsigned int length)
+{
+  String payloadString = String((char *)payload).substring(0, length);
+  String topicString = String(topic);
+  messageReceived(topicString, payloadString);
 }
 
 void connect()
 {
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED)
+  {
     delay(200);
   }
 
-  while (!client.connect("tosia-siren")) {
+  while (!client.connect("tosia-siren"))
+  {
     delay(200);
   }
+}
+
+void signalOn()
+{
+  //digitalWrite(17, HIGH);
+  ledcWrite(1, signalPower);
+  isSignalOn = true;
+}
+
+void signalOff()
+{
+  //digitalWrite(17, LOW);
+  ledcWrite(1, 0);
+  isSignalOn = false;
 }
 
 void setup()
@@ -95,7 +123,7 @@ void setup()
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, pass);
 
-  client.setServer("10.10.4.1",1883);
+  client.setServer("10.10.4.1", 1883);
   client.setCallback(pubSubCallback);
   connect();
 
@@ -108,43 +136,43 @@ void setup()
   client.subscribe("/tosia/siren/+");
   client.subscribe("/tosia/signal/+");
   ArduinoOTA
-    .onStart([]() {
-      String type;
-      if (ArduinoOTA.getCommand() == U_FLASH)
-        type = "sketch";
-      else // U_SPIFFS
-        type = "filesystem";
+      .onStart([]() {
+        String type;
+        if (ArduinoOTA.getCommand() == U_FLASH)
+          type = "sketch";
+        else // U_SPIFFS
+          type = "filesystem";
 
-      // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-      Serial.println("Start updating " + type);
-    })
-    .onEnd([]() {
-      Serial.println("\nEnd");
-    })
-    .onProgress([](unsigned int progress, unsigned int total) {
-      Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-    })
-    .onError([](ota_error_t error) {
-      Serial.printf("Error[%u]: ", error);
-      if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-      else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-      else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-      else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-      else if (error == OTA_END_ERROR) Serial.println("End Failed");
-    });
+        // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+        Serial.println("Start updating " + type);
+      })
+      .onEnd([]() {
+        Serial.println("\nEnd");
+      })
+      .onProgress([](unsigned int progress, unsigned int total) {
+        Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+      })
+      .onError([](ota_error_t error) {
+        Serial.printf("Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR)
+          Serial.println("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR)
+          Serial.println("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR)
+          Serial.println("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR)
+          Serial.println("Receive Failed");
+        else if (error == OTA_END_ERROR)
+          Serial.println("End Failed");
+      });
   ArduinoOTA.begin();
   MDNS.begin("tosia-siren");
-  publish("/tosia-siren/IP",WiFi.localIP().toString());
-}
+  publish("/tosia-siren/IP", WiFi.localIP().toString());
+  publish("/tosia-siren/version", "8");
 
-void signalOn()
-{
-  digitalWrite(17, HIGH);
-}
-
-void signalOff()
-{
-  digitalWrite(17, LOW);
+  ledcAttachPin(17, 1);
+  ledcSetup(1, 100, 8);
+  signalOff();
 }
 
 void allOn()
@@ -192,7 +220,8 @@ void loop()
       allOff();
       on(sirenStep);
       sirenStep = (sirenStep + 1);
-      if( sirenStep >= 10) {
+      if (sirenStep >= 10)
+      {
         sirenStep = 0;
       }
       delay(sirenDelay);
@@ -202,7 +231,8 @@ void loop()
       on(sirenStep);
       on(sirenStep + 5);
       sirenStep = (sirenStep + 1);
-      if( sirenStep >= 5) {
+      if (sirenStep >= 5)
+      {
         sirenStep = 0;
       }
       delay(sirenDelay);
@@ -221,61 +251,72 @@ void loop()
       delay(sirenDelay);
       break;
     case 10:
-        allOff();
-        on(0);
-        break;
+      allOff();
+      on(0);
+      break;
     case 11:
-        allOff();
-        on(1);
-        break;
+      allOff();
+      on(1);
+      break;
     case 12:
-        allOff();
-        on(2);
-        break;
+      allOff();
+      on(2);
+      break;
     case 13:
-        allOff();
-        on(3);
-        break;
+      allOff();
+      on(3);
+      break;
     case 14:
-        allOff();
-        on(4);
-        break;
+      allOff();
+      on(4);
+      break;
     case 15:
-        allOff();
-        on(5);
-        break;
+      allOff();
+      on(5);
+      break;
     case 16:
-        allOff();
-        on(6);
-        break;
+      allOff();
+      on(6);
+      break;
     case 17:
-        allOff();
-        on(7);
-        break;
+      allOff();
+      on(7);
+      break;
     case 18:
-        allOff();
-        on(8);
-        break;
+      allOff();
+      on(8);
+      break;
     case 19:
-        allOff();
-        on(9);
-        break;
+      allOff();
+      on(9);
+      break;
     case 20:
-        allOff();
-        on(10);
-        break;
+      allOff();
+      on(10);
+      break;
     default:
     case 0:
       allOff();
       delay(100);
       break;
     }
-    if( signalCount > 0 ){
-      signalOn();
-      delay( signalLength );
-      signalOff();
-      delay( signalDelay );
-      signalCount--;
+
+    int timeNow = millis();
+    if (timeNow >= signalSwitchTime &&
+        signalCount > 0)
+    {
+
+      if (isSignalOn == false)
+      {
+        signalOn();
+        signalSwitchTime = timeNow + signalLength;
+      }
+      else
+      {
+        signalOff();
+        signalSwitchTime = timeNow + signalDelay;
+        signalCount--;
+      }
     }
   }
 }
