@@ -12,7 +12,7 @@
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-const char version[] = "30";
+const char version[] = "35";
 const char projectName[] = "watering2";
 
 const int pinValve1 = 25;
@@ -24,6 +24,8 @@ const int pinMoisturePower = 26;
 const int pinMoisture1 = 34;
 const int pinMoisture2 = 32;
 const int pinMoisture3 = 35;
+
+unsigned long wateringEnd = 0;
 
 WiFiClient net;
 PubSubClient client(net);
@@ -45,6 +47,25 @@ void publish(const String &topic, const String &payload)
   client.publish((char *)topicChars, (char *)payloadChars); //,false,1);
 }
 
+void closeAllValves(){
+  digitalWrite(pinValve1, LOW);
+  digitalWrite(pinValve2, LOW);
+  digitalWrite(pinValve3, LOW);
+}
+
+void pumpSetPower(int power){
+  ledcWrite(1, power);
+}
+
+void doWatering(int pin, int amount){
+    publish("/watering2/ack", "watering: " + String(pin) + " for: " + String(amount)+" seconds");
+
+    wateringEnd = millis() + amount*1000;
+    closeAllValves();
+    digitalWrite(pin, HIGH);
+    pumpSetPower(255);
+}
+
 void messageReceived(String &topic, String &payload)
 {
   if (topic == String("/watering2/pump1"))
@@ -53,6 +74,19 @@ void messageReceived(String &topic, String &payload)
     ledcWrite(1, power);
     publish("/watering2/ack", "pump: " + payload);
   }
+  if (topic == String("/watering2/water1")){
+    doWatering( pinValve1, payload.toInt());
+  }
+  if (topic == String("/watering2/water2")){
+    doWatering( pinValve2, payload.toInt());
+  }
+  if (topic == String("/watering2/water3")){
+    doWatering( pinValve3, payload.toInt());
+  }
+  if (topic == String("/watering2/millis")){
+    publish("/watering2/ack", "millis: " + String(millis()));
+  }
+
   if (topic == String("/watering2/valve1"))
   {
     int power = payload.toInt();
@@ -189,6 +223,7 @@ void setup()
   ArduinoOTA.begin();
   MDNS.begin(projectName);
   publish("/watering2/IP", WiFi.localIP().toString());
+  publish("/watering2/RSSI", String(WiFi.RSSI()));
   publish("/watering2/version", version);
 
   client.subscribe("/watering2/+");
@@ -233,31 +268,41 @@ void wifiReconnect()
 
 void loop()
 {
-  int lastPingTime = millis();
+
+  unsigned long timeNow = 0;
 
   while (true)
   {
-    delay(50);
+    timeNow = millis();
+    
+    delay(500);
     ArduinoOTA.handle();
     client.loop();
+
+    if( wateringEnd != 0 && timeNow > wateringEnd ){
+      publish("/watering2/ack", "watering done at: " + String( timeNow ));
+
+      pumpSetPower(0);
+      closeAllValves();
+      wateringEnd = 0;
+    }
+
     if (!client.connected() || WiFi.status() != WL_CONNECTED)
     {
       connect();
     }
 
+
+    /** one day, this is going to be an IP based ping watchdog 
     int nowTime = millis();
 
-/*    if ()
-    {
-      wifiReconnect();
-    }
-*/
     if (nowTime - lastPingTime > 10000)
     {
       lastPingTime = nowTime;
-      //      if( WiFi.ping("10.10.1.4") < 0 ) {
-      //       connect();
-      //     }
+      if( WiFi.ping("10.10.1.4") < 0 ) {
+            connect();
+      }
     }
+    */
   }
 }
