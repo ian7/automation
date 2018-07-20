@@ -1,4 +1,4 @@
-#include <Arduino.h>
+#include "Arduino.h"
 #include <ESPmDNS.h>
 #include <WiFiUdp.h>
 #include <PubSubClient.h>
@@ -12,7 +12,7 @@
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-const char version[] = "35";
+const char version[] = "38";
 const char projectName[] = "watering2";
 
 const int pinValve1 = 25;
@@ -24,6 +24,9 @@ const int pinMoisturePower = 26;
 const int pinMoisture1 = 34;
 const int pinMoisture2 = 32;
 const int pinMoisture3 = 35;
+
+const int pinFlow = 18;
+int flowCounter = 0;
 
 unsigned long wateringEnd = 0;
 
@@ -44,46 +47,60 @@ void publish(const String &topic, const String &payload)
   unsigned char payloadChars[100];
   topic.getBytes(topicChars, 100);
   payload.getBytes(payloadChars, 100);
-  client.publish((char *)topicChars, (char *)payloadChars); //,false,1);
+  client.publish((char *)topicChars, (char *)payloadChars);
 }
 
-void closeAllValves(){
+void closeAllValves()
+{
   digitalWrite(pinValve1, LOW);
   digitalWrite(pinValve2, LOW);
   digitalWrite(pinValve3, LOW);
 }
 
-void pumpSetPower(int power){
+void pumpSetPower(int power)
+{
+  if( power > 0 ){
+    flowCounter = 0;
+  }
   ledcWrite(1, power);
 }
 
-void doWatering(int pin, int amount){
-    publish("/watering2/ack", "watering: " + String(pin) + " for: " + String(amount)+" seconds");
+void doWatering(int pin, int amount)
+{
+  publish("/watering2/ack", "watering: " + String(pin) + " for: " + String(amount) + " seconds");
 
-    wateringEnd = millis() + amount*1000;
-    closeAllValves();
-    digitalWrite(pin, HIGH);
-    pumpSetPower(255);
+  wateringEnd = millis() + amount * 1000;
+  closeAllValves();
+  digitalWrite(pin, HIGH);
+  pumpSetPower(255);
 }
 
 void messageReceived(String &topic, String &payload)
 {
+  if (topic == String("/watering2/restart")){
+    esp_restart();
+  }
+
   if (topic == String("/watering2/pump1"))
   {
     int power = payload.toInt();
     ledcWrite(1, power);
     publish("/watering2/ack", "pump: " + payload);
   }
-  if (topic == String("/watering2/water1")){
-    doWatering( pinValve1, payload.toInt());
+  if (topic == String("/watering2/water1"))
+  {
+    doWatering(pinValve1, payload.toInt());
   }
-  if (topic == String("/watering2/water2")){
-    doWatering( pinValve2, payload.toInt());
+  if (topic == String("/watering2/water2"))
+  {
+    doWatering(pinValve2, payload.toInt());
   }
-  if (topic == String("/watering2/water3")){
-    doWatering( pinValve3, payload.toInt());
+  if (topic == String("/watering2/water3"))
+  {
+    doWatering(pinValve3, payload.toInt());
   }
-  if (topic == String("/watering2/millis")){
+  if (topic == String("/watering2/millis"))
+  {
     publish("/watering2/ack", "millis: " + String(millis()));
   }
 
@@ -268,32 +285,45 @@ void wifiReconnect()
 
 void loop()
 {
-
   unsigned long timeNow = 0;
+  bool lastFlowState = false;
 
   while (true)
   {
     timeNow = millis();
-    
-    delay(500);
+
+    delay(50);
     ArduinoOTA.handle();
     client.loop();
 
-    if( wateringEnd != 0 && timeNow > wateringEnd ){
-      publish("/watering2/ack", "watering done at: " + String( timeNow ));
+    if (wateringEnd != 0)
+    {
+      if (timeNow > wateringEnd)
+      {
+        publish("/watering2/ack", "watering done at: " + String(timeNow) + " flow: " + String(flowCounter));
 
-      pumpSetPower(0);
-      closeAllValves();
-      wateringEnd = 0;
+        pumpSetPower(0);
+        closeAllValves();
+        wateringEnd = 0;
+        flowCounter = 0;
+      }
+      else
+      {
+        // here we are going to count pulses
+        bool currentFlowState = digitalRead(pinFlow);
+        if( currentFlowState != lastFlowState ){
+          flowCounter++;
+//          publish("/watering2/ack", "flow count at: " + String(flowCounter));
+          lastFlowState = currentFlowState;
+        }
+      }
     }
 
     if (!client.connected() || WiFi.status() != WL_CONNECTED)
     {
       connect();
     }
-
-
-    /** one day, this is going to be an IP based ping watchdog 
+    /* one day, this is going to be an IP based ping watchdog 
     int nowTime = millis();
 
     if (nowTime - lastPingTime > 10000)
