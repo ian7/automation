@@ -6,6 +6,7 @@ MQTTClient client;
 
 const char ssid[] = "HTM-devices";
 const char pass[] = "tofatofatofa";
+const int version = 1;
 
 int currentw = 0;
 int cW = 0, cR = 0, cG = 0, cB = 0;
@@ -20,7 +21,7 @@ int h = 0, s = 0, v = 0;
 #define LEDC_TIMER_13_BIT 13
 
 // use 5000 Hz as a LEDC base frequency
-#define LEDC_BASE_FREQ 5000
+#define LEDC_BASE_FREQ 125
 
 // fade LED PIN (replace with LED_BUILTIN constant for built-in LED)
 #define LED_PIN 23
@@ -165,6 +166,9 @@ void setup()
   client.begin("10.10.4.1", net);
   client.onMessage(messageReceived);
   connect();
+  client.publish("/bedroom-light/IP", WiFi.localIP().toString());
+  client.publish("/bedroom-light/RSSI", String(WiFi.RSSI()));
+  client.publish("/bedroom-light/version", String(version));
 }
 
 void loop()
