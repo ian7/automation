@@ -1,12 +1,13 @@
 #include <MQTTClient.h>
 #include <WiFi.h>
+#include <ArduinoOTA.h>
+#include <wifi-password.h>
 
 WiFiClient net;
 MQTTClient client;
 
-const char ssid[] = "HTM-devices";
-const char pass[] = "tofatofatofa";
-const int version = 1;
+const int version = 2;
+bool lastTopLight = false;
 
 int currentw = 0;
 int cW = 0, cR = 0, cG = 0, cB = 0;
@@ -155,7 +156,8 @@ void setup()
   ledcSetup(1, LEDC_BASE_FREQ, LEDC_TIMER_13_BIT);
   ledcAttachPin(21, 1);
   ledcSetup(2, LEDC_BASE_FREQ, LEDC_TIMER_13_BIT);
-  ledcAttachPin(19, 2);
+  // this was ment to be 19, but I burned out pin on the mini32 and it is bridged over to 33
+  ledcAttachPin(33, 2);
   ledcSetup(3, LEDC_BASE_FREQ, LEDC_TIMER_13_BIT);
   ledcAttachPin(18, 3);
 
@@ -169,6 +171,40 @@ void setup()
   client.publish("/bedroom-light/IP", WiFi.localIP().toString());
   client.publish("/bedroom-light/RSSI", String(WiFi.RSSI()));
   client.publish("/bedroom-light/version", String(version));
+
+    ArduinoOTA
+      .onStart([]() {
+        String type;
+        if (ArduinoOTA.getCommand() == U_FLASH)
+          type = "sketch";
+        else // U_SPIFFS
+          type = "filesystem";
+
+        // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+        Serial.println("Start updating " + type);
+      })
+      .onEnd([]() {
+        Serial.println("\nEnd");
+      })
+      .onProgress([](unsigned int progress, unsigned int total) {
+        Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+      })
+      .onError([](ota_error_t error) {
+        Serial.printf("Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR)
+          Serial.println("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR)
+          Serial.println("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR)
+          Serial.println("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR)
+          Serial.println("Receive Failed");
+        else if (error == OTA_END_ERROR)
+          Serial.println("End Failed");
+      });
+
+  ArduinoOTA.begin();
+
 }
 
 void loop()
@@ -196,7 +232,7 @@ void loop()
       {
         cW++;
       }
-      ledcAnalogWrite(LEDC_CHANNEL_0, cW);
+      ledcAnalogWrite(1, cW);
       delay(1);
     }
 
@@ -210,7 +246,7 @@ void loop()
       {
         cR++;
       }
-      ledcAnalogWrite(1, cR);
+      ledcAnalogWrite(2, cR);
       delay(1);
     }
 
@@ -224,7 +260,7 @@ void loop()
       {
         cG++;
       }
-      ledcAnalogWrite(2, cG);
+      ledcAnalogWrite(0, cG);
       delay(1);
     }
 
@@ -285,5 +321,15 @@ void loop()
 
     // wait for 30 milliseconds to see the dimming effect
     delay(5);
+
+    bool currentTopLight = digitalRead(27);
+
+    if( currentTopLight != lastTopLight ){
+      // reading one is no singal, reading zero is signal
+      client.publish("/light/bedroom/topLight",String(!currentTopLight));
+      lastTopLight=currentTopLight;
+    }
+    ArduinoOTA.handle();
+
   }
 }
