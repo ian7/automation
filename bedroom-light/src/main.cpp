@@ -2,12 +2,20 @@
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <wifi-password.h>
+#include <HTTPClient.h>
+#include <esp_int_wdt.h>
+#include <esp_task_wdt.h>
 
 WiFiClient net;
 MQTTClient client;
 
-const int version = 2;
+const int version = 4;
+const char projectName[] = "bedroom-light";
+
 bool lastTopLight = false;
+unsigned long lastHeartBeat = 0;
+const unsigned long heartBeatInterval = 10000; // 10 seconds
+const int reconnectCounterThreshold = 100; // retires happen every 200ms, so this gives 20s
 
 int currentw = 0;
 int cW = 0, cR = 0, cG = 0, cB = 0;
@@ -28,6 +36,12 @@ int h = 0, s = 0, v = 0;
 #define LED_PIN 23
 
 int fadeAmount = 5; // how many points to fade the LED by
+
+void hard_restart() {
+  esp_task_wdt_init(1,true);
+  esp_task_wdt_add(NULL);
+  while(true);
+}
 
 void hsi2rgbw(float H, float S, float I, int *rgbw)
 {
@@ -87,27 +101,41 @@ void ledcAnalogWrite(uint8_t channel, uint32_t value, uint32_t valueMax = 255)
 
 void connect()
 {
+
+  int reconnectCounter = 0;
   while (WiFi.status() != WL_CONNECTED)
   {
-    delay(1000);
+    delay(200);
+    reconnectCounter++;
+    if(reconnectCounter > reconnectCounterThreshold){
+      hard_restart();
+    }
   }
 
-  while (!client.connect("bedroomLight"))
+  reconnectCounter=0;
+  while (!client.connect(projectName))
   {
-    delay(1000);
+    delay(200);
+    reconnectCounter++;
+    if(reconnectCounter > reconnectCounterThreshold){
+      hard_restart();
+    }
   }
-  client.subscribe("/light/bedroom/w");
-  client.subscribe("/light/bedroom/r");
-  client.subscribe("/light/bedroom/g");
-  client.subscribe("/light/bedroom/b");
-  client.subscribe("/light/bedroom/brightness");
-  client.subscribe("/light/bedroom/hue");
-  client.subscribe("/light/bedroom/saturation");
-  client.subscribe("/light/bedroom/color");
+
+
+  client.subscribe("/light/bedroom/+");
+  client.subscribe("/heartbeat");
 }
 
 void messageReceived(String &topic, String &payload)
 {
+  if (topic == String("/heartbeat")){
+    lastHeartBeat = millis();
+  }
+
+  if (topic == String("/light/bedroom/restart")){
+    esp_restart();
+  }
 
   if (topic == String("/light/bedroom/w"))
   {
@@ -204,7 +232,7 @@ void setup()
       });
 
   ArduinoOTA.begin();
-
+  lastHeartBeat = millis();
 }
 
 void loop()
@@ -331,5 +359,11 @@ void loop()
     }
     ArduinoOTA.handle();
 
+    unsigned long timeNow = millis();
+    if( lastHeartBeat != 0 && timeNow - lastHeartBeat > heartBeatInterval ){
+      client.publish("/light/bedroom/watchdog","triggered");
+      lastHeartBeat = 0;
+      hard_restart();
+    }
   }
 }
