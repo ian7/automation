@@ -6,13 +6,16 @@
 #include <WiFi.h>
 #include "wifi-password.h"
 #include "DHT.h"
+#include <esp_int_wdt.h>
+#include <esp_task_wdt.h>
+
 
 #define LED_BUILTIN 5
 #define DHTPIN 22
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-const char version[] = "38";
+const char version[] = "39";
 const char projectName[] = "watering2";
 
 const int pinValve1 = 25;
@@ -29,9 +32,19 @@ const int pinFlow = 18;
 int flowCounter = 0;
 
 unsigned long wateringEnd = 0;
+unsigned long lastHeartBeat = 0;
+const unsigned long heartBeatInterval = 10000; // 10 seconds
+const int reconnectCounterThreshold = 100; // retires happen every 200ms, so this gives 20s
 
 WiFiClient net;
 PubSubClient client(net);
+
+void hard_restart() {
+  esp_task_wdt_init(1,true);
+  esp_task_wdt_add(NULL);
+  while(true);
+}
+
 
 void WiFiEvent(WiFiEvent_t event)
 {
@@ -77,8 +90,12 @@ void doWatering(int pin, int amount)
 
 void messageReceived(String &topic, String &payload)
 {
+  if (topic == String("/heartbeat")){
+    lastHeartBeat = millis();
+  }
+
   if (topic == String("/watering2/restart")){
-    esp_restart();
+    hard_restart();
   }
 
   if (topic == String("/watering2/pump1"))
@@ -190,14 +207,24 @@ void connect()
   client.setServer("10.10.4.1", 1883);
   client.setCallback(pubSubCallback);
 
+  int reconnectCounter = 0;
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(200);
+    reconnectCounter++;
+    if(reconnectCounter > reconnectCounterThreshold){
+      hard_restart();
+    }
   }
 
+  reconnectCounter=0;
   while (!client.connect(projectName))
   {
     delay(200);
+    reconnectCounter++;
+    if(reconnectCounter > reconnectCounterThreshold){
+      hard_restart();
+    }
   }
 }
 
@@ -244,6 +271,7 @@ void setup()
   publish("/watering2/version", version);
 
   client.subscribe("/watering2/+");
+  client.subscribe("/heartbeat");
 
   ledcAttachPin(27, 1);
   ledcSetup(1, 100, 8);
@@ -265,6 +293,8 @@ void setup()
   pinMode(pinMoisture2, INPUT_PULLDOWN);
   digitalWrite(pinMoisture3, LOW);
   pinMode(pinMoisture3, INPUT_PULLDOWN);
+    
+  lastHeartBeat = millis();
 }
 
 void wifiReconnect()
@@ -323,16 +353,11 @@ void loop()
     {
       connect();
     }
-    /* one day, this is going to be an IP based ping watchdog 
-    int nowTime = millis();
-
-    if (nowTime - lastPingTime > 10000)
-    {
-      lastPingTime = nowTime;
-      if( WiFi.ping("10.10.1.4") < 0 ) {
-            connect();
-      }
+      unsigned long timeNow = millis();
+    if( lastHeartBeat != 0 && timeNow - lastHeartBeat > heartBeatInterval ){
+      client.publish("/light/bedroom/watchdog","triggered");
+      lastHeartBeat = 0;
+      hard_restart();
     }
-    */
   }
 }
