@@ -15,7 +15,7 @@
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-const char version[] = "39";
+const char version[] = "40";
 const char projectName[] = "watering2";
 
 const int pinValve1 = 25;

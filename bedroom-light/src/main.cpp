@@ -9,7 +9,7 @@
 WiFiClient net;
 MQTTClient client;
 
-const int version = 4;
+const int version = 5;
 const char projectName[] = "bedroom-light";
 
 bool lastTopLight = false;
