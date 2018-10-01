@@ -56,13 +56,14 @@ Utils::~Utils() {
 }
 
 #ifndef ESP8266
+
 	void analogWriteRange(int x){
 
 	}
 	void analogWriteFreq(int x){
 
 	}
-	void analogWrite(int x, int y){
+/*	void analogWrite(int x, int y){
 
 	}
 	void pinMode(int x, int y){
@@ -80,6 +81,6 @@ Utils::~Utils() {
 			return -x;
 		}
 	}
-
+*/
 #endif
 

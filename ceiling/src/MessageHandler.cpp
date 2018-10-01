@@ -44,3 +44,7 @@ void MessageHander::messageReceived(string topic, string payload)
         }
     }
 }
+bool MessageHander::matchesTopic(string topic)
+{
+    return 0 == topic.find("/" + projectName + "/" + topic);
+}

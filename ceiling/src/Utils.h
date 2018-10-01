@@ -14,6 +14,8 @@
 #include <PubSubClient.h>
 #include <Arduino.h>
 
+#else
+#include <ArduinoFake.h>
 #endif
 
 #include <wifi-password.h>
@@ -36,14 +38,10 @@ public:
 	virtual ~Utils();
 };
 
+
 #ifndef ESP8266
 void analogWriteRange(int x);
 void analogWriteFreq(int x);
-void analogWrite(int x, int y);
-void pinMode(int x, int y);
-void delay(int x);
-int abs( int x );
-#define OUTPUT 1
 #endif
 
 #endif /* SRC_UTILS_H_ */

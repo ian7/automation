@@ -1,9 +1,23 @@
 #include <unity.h>
+#include <string>
+#ifndef ESP8266
+#include <ArduinoFake.h>
+#endif
+#include "Utils.h"
+#include "MessageHandler.h"
+
+using namespace fakeit;
+
+using namespace std;
 
 void test_function_calculator_subtraction(void) {
-    const string topic = "/ceiling/abc"
-    
-    TEST_ASSERT_EQUAL(20, 20);
+    string topic = "/ceiling/abc";
+    Utils u = Utils();
+    MessageHander mh(u);
+
+    TEST_ASSERT_GREATER_OR_EQUAL(1,topic.find("abc"));
+    TEST_ASSERT_FALSE(("de"));
+    TEST_ASSERT_TRUE(mh.matchesTopic("abc"));
 }
 
 void process() {

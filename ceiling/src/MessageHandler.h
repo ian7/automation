@@ -20,8 +20,8 @@ class MessageHander {
     private:
     const string projectName = "ceiling";
     Utils * utils;
-//    string to_string( int i );
     public:
+    bool matchesTopic(string topic);
     MessageHander(Utils &utils);
     ~MessageHander();
     void messageReceived(string topic, string payload);
