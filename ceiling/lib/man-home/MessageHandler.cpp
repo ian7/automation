@@ -46,5 +46,22 @@ void MessageHander::messageReceived(string topic, string payload)
 }
 bool MessageHander::matchesTopic(string topic, string testee)
 {
-    return(!(testee.find("/" + projectName + "/" + topic) == string::npos));
+    return(!(testee.find("/" + this->getProjectName() + "/" + topic) == string::npos));
+}
+
+string MessageHander::getProjectName(){
+    return this->projectName;
+}
+
+template<typename Out> void MessageHander::split(const std::string &s, char delim, Out result) {
+    std::stringstream ss(s);
+    std::string item;
+    while (std::getline(ss, item, delim)) {
+        *(result++) = item;
+    }
+}
+std::vector<std::string> MessageHander::split(const std::string &s, char delim) {
+    std::vector<std::string> elems;
+    split(s, delim, std::back_inserter(elems));
+    return elems;
 }
