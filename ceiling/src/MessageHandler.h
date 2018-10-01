@@ -18,6 +18,7 @@ using namespace patch;
 
 class MessageHander {
     private:
+    const string projectName = "ceiling";
     Utils * utils;
 //    string to_string( int i );
     public:
