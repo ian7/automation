@@ -44,7 +44,7 @@ void MessageHander::messageReceived(string topic, string payload)
         }
     }
 }
-bool MessageHander::matchesTopic(string topic)
+bool MessageHander::matchesTopic(string topic, string testee)
 {
-    return 0 == topic.find("/" + projectName + "/" + topic);
+    return(!(testee.find("/" + projectName + "/" + topic) == string::npos));
 }

@@ -7,7 +7,6 @@
 #include "MessageHandler.h"
 
 using namespace fakeit;
-
 using namespace std;
 
 void test_function_calculator_subtraction(void) {
@@ -16,8 +15,8 @@ void test_function_calculator_subtraction(void) {
     MessageHander mh(u);
 
     TEST_ASSERT_GREATER_OR_EQUAL(1,topic.find("abc"));
-    TEST_ASSERT_FALSE(("de"));
-    TEST_ASSERT_TRUE(mh.matchesTopic("abc"));
+    TEST_ASSERT_TRUE(mh.matchesTopic("abc","/ceiling/abc"));
+    TEST_ASSERT_FALSE(mh.matchesTopic("abc","/ceiling/abd"));
 }
 
 void process() {

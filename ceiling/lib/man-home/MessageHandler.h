@@ -21,7 +21,7 @@ class MessageHander {
     const string projectName = "ceiling";
     Utils * utils;
     public:
-    bool matchesTopic(string topic);
+    bool matchesTopic(string topic, string testee);
     MessageHander(Utils &utils);
     ~MessageHander();
     void messageReceived(string topic, string payload);
