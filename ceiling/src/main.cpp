@@ -6,6 +6,7 @@
 #endif
 
 #include "Utils.h"
+#include "MessageHandler.h"
 
 int pins[9]= {16,5,4,0,2,14,12,13,15};
 int speed[9]={0,0,0,0,0,0,0,0,0};
@@ -17,34 +18,9 @@ using namespace std;
 
 
 Utils utils;
+MessageHander mh(utils);
 
-void messageReceived(const string topic, const string payload)
-{
-  if( topic.find("/ceiling/abc",0) >= 0 ){
-    utils.publish("/ceiling/ack","haha");
-  }
-
-  const string topicPrefix = string("/ceiling/set");
-  if (topic.find(topicPrefix) >= 0 )
-  {
-    if( topic.length() <= topicPrefix.length()){
-      utils.publish("/ceiling/ack","set topic missing chanel number");
-      return;
-    }
-    utils.publish("/ceiling/ack","set received");
-    const int indexOfTopic = topic.find(topicPrefix);
-    const int channel = stoi(topic.substr(topicPrefix.length()));
-    const int spaceIndex = payload.find(" ");
-    if( spaceIndex <= 0) {
-      utils.publish("/ceiling/ack","malformed content, it should contain target _space_ speed");
-      return;
-    }
-    const int target = stoi(payload.substr(0,spaceIndex));
-    const int speed = stoi(payload.substr(spaceIndex+1));
-//    utils.publish("/ceiling/ack", (String("channel: ") + String(channel) + " target: " + String(target) + " speed: " + String(speed)).c_str());
-    
-  }
-
+void messageReceived(const string topic, const string payload){
 }
 
 
@@ -55,7 +31,7 @@ void setup()
     }
     analogWriteRange(1023);
     analogWriteFreq(100);
-
+  
 
   
 }

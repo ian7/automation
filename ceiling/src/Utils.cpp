@@ -12,11 +12,9 @@ Utils::Utils() {
 }
 
 void Utils::publish(const string &topic, const string &payload) {
-	unsigned char topicChars[100];
-	unsigned char payloadChars[100];
-	//topic.getBytes(topicChars, 100);
-	//payload.getBytes(payloadChars, 100);
-	//client.publish((char *) topicChars, (char *) payloadChars);
+#ifdef ESP8266
+	client.publish((char *) topic.c_str(), (char *) payload.c_str());
+#endif
 }
 
 void Utils::connect() {
