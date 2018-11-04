@@ -1,0 +1,14 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Google Test",
+            "type": "shell",
+            "isTestCommand": true,
+            "group": "test",
+            "command": "g++ --std=c++11 -isystem c:\\tools\\mingw64\\include\\ -pthread src\\main.cpp test\\test.cpp c:\\tools\\mingw64\\lib\\libgtest.a; test\\a.exe"
+        }
+    ]
+}
