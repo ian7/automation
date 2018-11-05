@@ -9,7 +9,7 @@
 WiFiClient net;
 MQTTClient client;
 
-const int version = 5;
+const int version = 10;
 const char projectName[] = "bedroom-light";
 
 bool lastTopLight = false;
@@ -90,7 +90,8 @@ void hsi2rgbw(float H, float S, float I, int *rgbw)
 
 // Arduino like analogWrite
 // value has to be between 0 and valueMax
-void ledcAnalogWrite(uint8_t channel, uint32_t value, uint32_t valueMax = 255)
+void 
+ledcAnalogWrite(uint8_t channel, uint32_t value, uint32_t valueMax = 255)
 {
   // calculate duty, 8191 from 2 ^ 13 - 1
   uint32_t duty = (8191 / valueMax) * std::min(value, valueMax);
@@ -260,7 +261,7 @@ void loop()
       {
         cW++;
       }
-      ledcAnalogWrite(1, cW);
+      ledcAnalogWrite(1, cW, 8191);
       delay(1);
     }
 
@@ -274,7 +275,7 @@ void loop()
       {
         cR++;
       }
-      ledcAnalogWrite(2, cR);
+      ledcAnalogWrite(2, cR, 8191);
       delay(1);
     }
 
@@ -288,7 +289,7 @@ void loop()
       {
         cG++;
       }
-      ledcAnalogWrite(0, cG);
+      ledcAnalogWrite(0, cG, 8191);
       delay(1);
     }
 
@@ -302,7 +303,7 @@ void loop()
       {
         cB++;
       }
-      ledcAnalogWrite(3, cB);
+      ledcAnalogWrite(3, cB, 8191);
       delay(1);
     }
 
