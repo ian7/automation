@@ -89,11 +89,7 @@ void loop() {
     delay(50);
         if (mySwitch.available()) {
             publish("/receiver/value",String(mySwitch.getReceivedValue()));
-            publish("/receiver/protocolValue",String(mySwitch.getReceivedValue()));
-            Serial.print(mySwitch.getReceivedBitlength());
-            Serial.print("bit ");
-            Serial.print("Protocol: ");
-            Serial.println(mySwitch.getReceivedProtocol());
+            publish("/receiver/protocolValue",String(mySwitch.getReceivedProtocol()) + String(mySwitch.getReceivedValue()));
             mySwitch.resetAvailable();
             digitalWrite(LED_PIN,LED_ON);
             delay(100);
