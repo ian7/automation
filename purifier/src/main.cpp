@@ -95,7 +95,7 @@ void messageReceived(const String topic, const String payload)
         set(0, power);
         set(1, power);
         set(2, power);
-        set(3, power);
+        set(3, power/3.5);
     }
     if (topic == String("/purifier/fansi"))
     {
@@ -238,7 +238,7 @@ void setup()
     ArduinoOTA.begin();
 
     publish("/purifier/IP", WiFi.localIP().toString());
-    publish("/purifier/version", "10");
+    publish("/purifier/version", "11");
     blink(2);
 
     pwm.begin();
