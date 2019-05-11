@@ -31,6 +31,8 @@ PubSubClient client(net);
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
 Adafruit_PWMServoDriver leds = Adafruit_PWMServoDriver(0x41);
 
+void setFans( int value );
+
 Encoder encoder(12, 13,0,31);
 
 int dark[] = {0,0,0,0,0};
@@ -92,10 +94,7 @@ void messageReceived(const String topic, const String payload)
     {
         int power = payload.toInt();
         publish("/air/ack", "fans: " + payload);
-        set(0, power);
-        set(1, power);
-        set(2, power);
-        set(3, power/3.5);
+        setFans(power);
     }
     if (topic == String("/purifier/fansi"))
     {
@@ -256,7 +255,7 @@ void setFans( int value ){
     set( 0, value );
     set( 1, value );
     set( 2, value );
-    set( 3, value );
+    set( 3, value/3.5 );
 }
 
 void ledsOff(){
@@ -303,15 +302,7 @@ void loop()
             power = 0;
         }
         publish("/purifier/power", String(power));
-        set(0, power);
-        set(1, power);
-        set(2, power);
-        //if( power > 3000 ){
-            set(3, power);
-        //}
-        //else{
-        //    set(3,0);
-        //}
+        setFans(power);
         setLeds(power,full);
         ledStamp = now;
     }
