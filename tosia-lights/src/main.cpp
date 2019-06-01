@@ -8,6 +8,7 @@
 #include <PubSubClient.h>
 #include <ESP8266WiFi.h>
 #include "wifi-password.h"
+#include <EEPROM.h>
 
 WiFiClient net;
 PubSubClient client(net);
@@ -38,6 +39,8 @@ int oldBrightness = brightness;
 int oldRed = red;
 int oldGreen = green;
 int oldBlue = blue;
+
+void blink( int times = 1, int length = 50 );
 
 void publish(const String &topic, const String &payload)
 {
@@ -137,6 +140,7 @@ class HSB{
 HSB now[NUM_LEDS];
 HSB dst[NUM_LEDS];
 double speed[NUM_LEDS]; 
+long int lastChanged[NUM_LEDS];
 
 
 // this is defined in wifi-password.h
@@ -153,12 +157,14 @@ void messageReceived(const String topic, const String payload)
         dst[i].black();
         speed[i]=0.7;
       }
+    blink();
     publish("/light/tosia/ack", dst[13].toString());
   }
   if (topic == String("/tosia-lights/white")){
       for( int i=0;i<NUM_LEDS;i++){
         dst[i].white();
       }
+    blink();
     publish("/light/tosia/ack", dst[13].toString());
   }
   if (topic == String("/tosia-lights/all")){
@@ -166,6 +172,7 @@ void messageReceived(const String topic, const String payload)
         dst[i].parseString(payload);
         speed[i]=0.7;
       }
+    blink();
     publish("/light/tosia/ack", dst[13].toString());
   }
 
@@ -174,6 +181,7 @@ void messageReceived(const String topic, const String payload)
         dst[i].b=0;
         speed[i]=0.6;
       }
+    blink();
 //    publish("/light/tosia/ack", dst[13].toString());
   }
 
@@ -186,6 +194,7 @@ void messageReceived(const String topic, const String payload)
     int i = topic.substring( lastSlash+1 ).toInt();
     dst[i].parseString(payload);
     speed[i]=0;
+    blink();
 //    publish("/light/tosia/ack", dst[i].toString());
   }
 
@@ -199,6 +208,7 @@ void messageReceived(const String topic, const String payload)
     dst[i].parseString(payload);
     speed[i]=0.3;
     //publish("/light/tosia/ack", dst[i].toString());
+    blink();
   }
 
   if (topic == String("/tosia-lights/hue"))
@@ -280,7 +290,7 @@ void connect()
 
 #define LED 2
 
-void blink( int times = 1, int length = 100 ){
+void blink( int times = 1, int length = 50 ){
   for( int i=0; i<times; i++ ){
     delay(length);
     digitalWrite(LED,LOW);
@@ -319,6 +329,7 @@ void setup()
     ArduinoOTA.setHostname("tosia-light");
     ArduinoOTA.begin();
 
+/*
   for( int j=0; j<2*256;j++){
       for (int i = 0; i < NUM_LEDS; i++)
       {
@@ -333,11 +344,24 @@ void setup()
   for( int i=0;i<NUM_LEDS;i++){
         dst[i].black();
   }
+*/
+  EEPROM.begin(512);
 
-  //ArduinoOTA.begin();
+  for( int i=0; i<NUM_LEDS;i++){
+    const long int timeNow = millis();
+    lastChanged[i]=timeNow;
+    speed[i]=0;
+
+    const int addressBase = i*3;
+    dst[i].h = EEPROM.read(addressBase);
+    dst[i].s = EEPROM.read(addressBase+1);
+    dst[i].b = EEPROM.read(addressBase+2);
+  }
+
   publish("/tosia-lights/IP", WiFi.localIP().toString());
   //publish("/tosia-lights/RSSI", String(WiFi.RSSI()));
-  publish("/tosia-lights/version", "3");
+  publish("/tosia-lights/version", "6");
+  blink(4);
 }
 
 
@@ -350,18 +374,35 @@ void loop()
       connect();
     }
     */
+   const long int timeNow = millis();
     for( int i=0; i<NUM_LEDS;i++){
       // in case stuff is different
       if( !now[i].isEqual(dst[i]) ){
         // if the step really changes something 
         if( now[i].step(dst[i],speed[i]) ){
-          
+          lastChanged[i] = timeNow;
         }
         hsv2rgb_rainbow(now[i].toColor(), leds[i]);
       }
     }
     FastLED.show();
     delay(2);
+
+    bool somethingChanged = false;
+    for( int i=0; i<NUM_LEDS;i++){
+      if( timeNow - lastChanged[i] > 3000 ){
+        somethingChanged = true;
+        lastChanged[i] = timeNow;
+        const int baseAddress = i*3;
+        EEPROM.write(baseAddress,now[i].h);
+        EEPROM.write(baseAddress+1,now[i].s);
+        EEPROM.write(baseAddress+2,now[i].b);
+      }
+    }
+
+    if(somethingChanged){
+        EEPROM.commit();
+    }
 
     ArduinoOTA.handle();
 
