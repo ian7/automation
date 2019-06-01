@@ -1,29 +1,26 @@
 #include <Arduino.h>
+#include <ArduinoOTA.h>
 
 #define FASTLED_ALLOW_INTERRUPTS 0
 #define FASTLED_ESP8266_NODEMCU_PIN_ORDER
 
 #include <FastLED.h>
-#include <MQTTClient.h>
-#include <WiFi.h>
+#include <PubSubClient.h>
+#include <ESP8266WiFi.h>
 #include "wifi-password.h"
 
 WiFiClient net;
-MQTTClient client;
-
-#include <IRremote.h>
+PubSubClient client(net);
 
 uint16_t RECV_PIN = 23;
-IRrecv irrecv(RECV_PIN);
-decode_results results;
 
 // How many leds in your strip?
-#define NUM_LEDS 50
+#define NUM_LEDS 150
 
 // For led chips like Neopixels, which have a data line, ground, and power, you just
 // need to define DATA_PIN.  For led chipsets that are SPI based (four wires - data, clock,
 // ground, and power), like the LPD8806, define both DATA_PIN and CLOCK_PIN
-#define DATA_PIN 22
+#define DATA_PIN 5
 #define CLOCK_PIN 2
 
 int red = 10;
@@ -42,6 +39,106 @@ int oldRed = red;
 int oldGreen = green;
 int oldBlue = blue;
 
+void publish(const String &topic, const String &payload)
+{
+    unsigned char topicChars[200];
+    unsigned char payloadChars[200];
+    topic.getBytes(topicChars, 200);
+    payload.getBytes(payloadChars, 200);
+    client.publish((char *)topicChars, (char *)payloadChars); //,false,1);
+}
+
+class HSB{
+  public:
+    double h;
+    double s;
+    double b;
+    HSB(){
+      this->h = 1;
+      this->s = 0;
+      this->b = 0;
+    }
+    boolean isEqual(HSB &that){
+      if( (int) h != (int) that.h || 
+          (int) s != (int) that.s ||
+          (int) b != (int) that.b ){
+            return false;
+          }
+          else{
+            return true;
+          }
+    }
+    int sign( int a, int b ){
+      if( a == b ){
+        return 0;
+      }
+      if( a > b ){
+        return 1;
+      }
+      else{
+        return -1;
+      }
+    }
+    boolean step( const HSB &dst, double speed=0 ){
+      if( dst.h == h && dst.s == s && dst.b == b ){
+        return false;
+      }
+      if( speed == 0 ){
+        h = dst.h;
+        s = dst.s;
+        b = dst.b;
+      }
+      else{
+        this->h -= sign( this->h, dst.h)*speed;
+        this->s -= sign( this->s, dst.s)*speed;
+        this->b -= sign( this->b, dst.b)*speed;
+      }
+      return true;
+    }
+    void black(){
+      b=0;
+      s=0;
+      h=0;
+    }
+    void white(){
+      b=255;
+      s=0;
+      h=0;
+    }
+    String toString(){
+      return "h: " + String(h) + " s: " + String(s) +" b: " + String(b);
+    }
+    CHSV toColor(){
+      return CHSV((int)h, (int)s, (int)b);
+    }
+    int countSpaces(String s){
+      int i = s.indexOf(" ");
+      int count = 0;
+      while( i!=-1 ){
+        count++;
+        i=s.indexOf(" ",i+1);
+      }
+      return count;
+    }
+    bool parseString(String input){
+      if( countSpaces(input) != 2 ){
+        return false;
+      }
+      int firstSpace = input.indexOf(" ");
+      int secondSpace = input.indexOf(" ",firstSpace+1);
+      h = input.substring(0,firstSpace).toInt();
+      s = input.substring(firstSpace+1,secondSpace).toInt();
+      b = input.substring(secondSpace+1).toInt();
+      //publish("/light/tosia/ack/parse", toString());
+      return true;
+    }
+};
+
+HSB now[NUM_LEDS];
+HSB dst[NUM_LEDS];
+double speed[NUM_LEDS]; 
+
+
 // this is defined in wifi-password.h
 //const char ssid[] = "xxx";
 //const char pass[] = "xxx";
@@ -49,116 +146,227 @@ int oldBlue = blue;
 // Define the array of leds
 CRGB leds[NUM_LEDS];
 
-void messageReceived(String &topic, String &payload)
+void messageReceived(const String topic, const String payload)
 {
-
-  if (topic == String("/light/tosia/hue"))
-  {
-    hue = payload.toInt();
-    client.publish("/light/tosia/ack", "h: " + String(hue) + " s: " + String(saturation) + " b: " + String(brightness));
+  if (topic == String("/tosia-lights/black")){
+      for( int i=0;i<NUM_LEDS;i++){
+        dst[i].black();
+        speed[i]=0.7;
+      }
+    publish("/light/tosia/ack", dst[13].toString());
   }
-  if (topic == String("/light/tosia/saturation"))
+  if (topic == String("/tosia-lights/white")){
+      for( int i=0;i<NUM_LEDS;i++){
+        dst[i].white();
+      }
+    publish("/light/tosia/ack", dst[13].toString());
+  }
+  if (topic == String("/tosia-lights/all")){
+      for( int i=0;i<NUM_LEDS;i++){
+        dst[i].parseString(payload);
+        speed[i]=0.7;
+      }
+    publish("/light/tosia/ack", dst[13].toString());
+  }
+
+  if (topic.indexOf("/tosia-lights/fadeAll")==0){
+      for( int i=0;i<NUM_LEDS;i++){
+        dst[i].b=0;
+        speed[i]=0.6;
+      }
+//    publish("/light/tosia/ack", dst[13].toString());
+  }
+
+  if (topic.indexOf("/tosia-lights/set")==0){
+    int lastSlash = topic.lastIndexOf("/");
+    if( lastSlash == topic.length()-1){
+      publish("/light/tosia/ack","missing led id");
+      return;
+    }
+    int i = topic.substring( lastSlash+1 ).toInt();
+    dst[i].parseString(payload);
+    speed[i]=0;
+//    publish("/light/tosia/ack", dst[i].toString());
+  }
+
+  if (topic.indexOf("/tosia-lights/fade/")==0){
+    int lastSlash = topic.lastIndexOf("/");
+    if( lastSlash == topic.length()-1){
+      publish("/light/tosia/ack","missing led id");
+      return;
+    }
+    int i = topic.substring( lastSlash+1 ).toInt();
+    dst[i].parseString(payload);
+    speed[i]=0.3;
+    //publish("/light/tosia/ack", dst[i].toString());
+  }
+
+  if (topic == String("/tosia-lights/hue"))
   {
-    saturation = payload.toInt();
-    client.publish("/light/tosia/ack", "h: " + String(hue) + " s: " + String(saturation) + " b: " + String(brightness));
+    int hue = payload.toInt();
+    for( int i=0;i<NUM_LEDS;i++){
+        dst[i].h=hue;
+        speed[i]=0.8;
+      }
+    publish("/light/tosia/ack", "h: " + String(hue) + " s: " + String(saturation) + " b: " + String(brightness));
+  }
+  if (topic == String("/tosia-lights/saturation"))
+  {
+    int saturation = payload.toInt();
+    for( int i=0;i<NUM_LEDS;i++){
+        dst[i].s=saturation;
+        speed[i]=0.8;
+    }
+
+    publish("/light/tosia/ack", "h: " + String(hue) + " s: " + String(saturation) + " b: " + String(brightness));
   }
   if (topic == String("/light/tosia/brightness"))
   {
-    brightness = payload.toInt();
-    client.publish("/light/tosia/ack", "h: " + String(hue) + " s: " + String(saturation) + " b: " + String(brightness));
+    int brightness = payload.toInt();
+    for( int i=0;i<NUM_LEDS;i++){
+        dst[i].b=brightness;
+        speed[i]=0.8;
+    }
+
+    publish("/light/tosia/ack", "h: " + String(hue) + " s: " + String(saturation) + " b: " + String(brightness));
   }
+
+  return;
 
   if (topic == String("/light/tosia/red"))
   {
     red = payload.toInt();
-    client.publish("/light/tosia/ack", "red " + payload);
+    publish("/light/tosia/ack", "red " + payload);
   }
   if (topic == String("/light/tosia/green"))
   {
     red = payload.toInt();
-    client.publish("/light/tosia/ack", "green " + payload);
+    publish("/light/tosia/ack", "green " + payload);
   }
   if (topic == String("/light/tosia/blue"))
   {
     red = payload.toInt();
-    client.publish("/light/tosia/ack", "blue " + payload);
+    publish("/light/tosia/ack", "blue " + payload);
   }
   //show();
 }
 
-void connect()
-{
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(1000);
-  }
-
-  while (!client.connect("tosia-light"))
-  {
-    delay(1000);
-  }
-  client.subscribe("/light/tosia/red");
-  client.subscribe("/light/tosia/green");
-  client.subscribe("/light/tosia/blue");
-  client.subscribe("/light/tosia/hue");
-  client.subscribe("/light/tosia/saturation");
-  client.subscribe("/light/tosia/brightness");
+void pubSubCallback(char* topic, byte* payload, unsigned int length){
+    String payloadString = String((char*)payload).substring(0,length);
+    String topicString = String(topic);
+    messageReceived(topicString, payloadString);
 }
 
-void setup()
+
+void connect()
 {
-  LEDS.addLeds<WS2812B, DATA_PIN>(leds, NUM_LEDS, 0);
-  LEDS.setBrightness(250);
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, pass);
 
-  client.begin("10.10.1.3", net);
-  client.onMessage(messageReceived);
-  connect();
+  client.setServer("10.10.4.1",1883);
+  client.setCallback(pubSubCallback);
 
-  irrecv.enableIRIn();
-  //myReceiver.enableIRIn(); // Start the receiver
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(200);
+    //ESP.restart();
+  }
+  while (!client.connect("tosia-lights"))
+  {
+    delay(200);
+  }
+  client.subscribe("/tosia-lights/#");
 }
+
+#define LED 2
+
+void blink( int times = 1, int length = 100 ){
+  for( int i=0; i<times; i++ ){
+    delay(length);
+    digitalWrite(LED,LOW);
+    delay(length);
+    digitalWrite(LED,HIGH);
+  }
+}
+
+
+void setup()
+{
+  pinMode(LED,OUTPUT);
+  LEDS.addLeds<WS2812B, DATA_PIN>(leds, NUM_LEDS, 0);
+  LEDS.setBrightness(250);
+  blink();
+
+  //client.begin("10.10.4.1", net);
+  connect();
+  blink(2);
+
+  ArduinoOTA.onStart([]() {
+        String type;
+        if (ArduinoOTA.getCommand() == U_FLASH)
+        {
+            type = "sketch";
+        }
+        else
+        { // U_SPIFFS
+            type = "filesystem";
+        }
+
+        // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+        Serial.println("Start updating " + type);
+    });
+
+    ArduinoOTA.setHostname("tosia-light");
+    ArduinoOTA.begin();
+
+  for( int j=0; j<2*256;j++){
+      for (int i = 0; i < NUM_LEDS; i++)
+      {
+        // Set the i'th led to red
+        CHSV newColor = CHSV((i+j)%255, 255, 255);
+        hsv2rgb_rainbow(newColor, leds[i]);
+        // Show the leds
+      }
+      j++;
+      FastLED.show();
+  }
+  for( int i=0;i<NUM_LEDS;i++){
+        dst[i].black();
+  }
+
+  //ArduinoOTA.begin();
+  publish("/tosia-lights/IP", WiFi.localIP().toString());
+  //publish("/tosia-lights/RSSI", String(WiFi.RSSI()));
+  publish("/tosia-lights/version", "3");
+}
+
 
 void loop()
 {
-
-  while (true)
-  {
-
+  while( true ) {
     client.loop();
-
-    if (!client.connected())
+    /*if (!client.connected())
     {
       connect();
     }
+    */
+    for( int i=0; i<NUM_LEDS;i++){
+      // in case stuff is different
+      if( !now[i].isEqual(dst[i]) ){
+        // if the step really changes something 
+        if( now[i].step(dst[i],speed[i]) ){
+          
+        }
+        hsv2rgb_rainbow(now[i].toColor(), leds[i]);
+      }
+    }
+    FastLED.show();
+    delay(2);
 
-    if (oldHue != hue || oldSaturation != saturation || oldBrightness != brightness)
+    ArduinoOTA.handle();
+
+/*    if (oldHue != hue || oldSaturation != saturation || oldBrightness != brightness)
     {
-      /*if( hue > oldHue ){
-        oldHue++;
-      }
-      
-      if( hue < oldHue ){
-        oldHue--;
-      }
-
-      if( saturation > oldSaturation) {
-        oldSaturation++;
-      }
-
-      if( saturation < oldSaturation ){
-        oldSaturation--;
-      }
-
-      if( brightness > oldBrightness ){
-        oldBrightness++;
-      }
-
-      if( brightness < oldBrightness ){
-        oldBrightness--;
-      }
-      */
       oldHue = hue;
       oldBrightness = brightness;
       oldSaturation = saturation;
@@ -173,8 +381,8 @@ void loop()
       }
       FastLED.show();
     }
-
-    if (irrecv.decode(&results))
+*/
+/*    if (irrecv.decode(&results))
     {
       if (results.decode_type == NEC)
       {
@@ -184,12 +392,11 @@ void loop()
 
         String hex = String(long1, HEX) + String(long2, HEX); // six octets
 
-        client.publish("/light/tosia/irReceiver", hex);
+        publish("/light/tosia/irReceiver", hex);
       }
 
       irrecv.resume(); // Receive the next value
     }
-
-    delay(30);
+*/
   }
 }
