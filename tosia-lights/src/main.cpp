@@ -9,6 +9,7 @@
 #include <ESP8266WiFi.h>
 #include "wifi-password.h"
 #include <EEPROM.h>
+#include <list>
 
 WiFiClient net;
 PubSubClient client(net);
@@ -23,6 +24,12 @@ uint16_t RECV_PIN = 23;
 // ground, and power), like the LPD8806, define both DATA_PIN and CLOCK_PIN
 #define DATA_PIN 5
 #define CLOCK_PIN 2
+
+#define PROGRAM_ADDRESS 500
+
+#define PROGRAM_STATIC 0
+#define PROGRAM_TWINLE 1
+
 
 int red = 10;
 int green = 10;
@@ -50,6 +57,46 @@ void publish(const String &topic, const String &payload)
     payload.getBytes(payloadChars, 200);
     client.publish((char *)topicChars, (char *)payloadChars); //,false,1);
 }
+
+class SavedValue { 
+  private: 
+    int address;
+    int value;
+  public:
+    SavedValue( int address ){
+      this->address = address;
+      this->value = EEPROM.read(address);
+    }
+    int get(){
+      return value;
+    }
+    void set(int value){
+      this->value = value;
+      EEPROM.write(this->address,value);
+      EEPROM.commit();
+    }
+};
+
+class Setting : public SavedValue {
+  private:
+    String topic;
+    double scale;
+  public:
+    Setting( int address, String topic, double scale = 1) 
+    : SavedValue( address ){
+      this->topic = topic;
+      this->scale = scale;
+    }
+    int get(){
+      return SavedValue::get()*scale;
+    }
+    void set(int value){
+      return SavedValue::set(value/scale);
+    }
+    String getTopic(){
+      return topic;
+    }
+};
 
 class HSB{
   public:
@@ -143,6 +190,13 @@ double speed[NUM_LEDS];
 long int lastChanged[NUM_LEDS];
 
 
+std::list<Setting> settings;
+Setting * activeProgram;
+Setting * twinkleDelay;
+Setting * twinkleBrightness;
+Setting * twinkleSpeed;
+
+
 // this is defined in wifi-password.h
 //const char ssid[] = "xxx";
 //const char pass[] = "xxx";
@@ -152,6 +206,18 @@ CRGB leds[NUM_LEDS];
 
 void messageReceived(const String topic, const String payload)
 {
+  
+  // let's iterate over settings
+  std::list<Setting>::iterator it;
+  for (it = settings.begin(); it != settings.end(); it++)
+  {
+    if( topic == it->getTopic()){
+      it->set(payload.toInt());
+      publish("/light/tosia/ack", "topic: " + topic + " payload: " + payload);
+      blink();
+    }  
+  }
+
   if (topic == String("/tosia-lights/black")){
       for( int i=0;i<NUM_LEDS;i++){
         dst[i].black();
@@ -299,6 +365,22 @@ void blink( int times = 1, int length = 50 ){
   }
 }
 
+void rainbow(){
+  for( int j=0; j<2*256;j++){
+      for (int i = 0; i < NUM_LEDS; i++)
+      {
+        // Set the i'th led to red
+        CHSV newColor = CHSV((i+j)%255, 255, 255);
+        hsv2rgb_rainbow(newColor, leds[i]);
+        // Show the leds
+      }
+      j++;
+      FastLED.show();
+  }
+  for( int i=0;i<NUM_LEDS;i++){
+        dst[i].black();
+  }
+}
 
 void setup()
 {
@@ -307,7 +389,6 @@ void setup()
   LEDS.setBrightness(250);
   blink();
 
-  //client.begin("10.10.4.1", net);
   connect();
   blink(2);
 
@@ -329,23 +410,29 @@ void setup()
     ArduinoOTA.setHostname("tosia-light");
     ArduinoOTA.begin();
 
-/*
-  for( int j=0; j<2*256;j++){
-      for (int i = 0; i < NUM_LEDS; i++)
-      {
-        // Set the i'th led to red
-        CHSV newColor = CHSV((i+j)%255, 255, 255);
-        hsv2rgb_rainbow(newColor, leds[i]);
-        // Show the leds
-      }
-      j++;
-      FastLED.show();
-  }
-  for( int i=0;i<NUM_LEDS;i++){
-        dst[i].black();
-  }
-*/
-  EEPROM.begin(512);
+    publish("/tosia-lights/IP", WiFi.localIP().toString());
+    publish("/tosia-lights/RSSI", String(WiFi.RSSI()));
+    publish("/tosia-lights/version", "10");
+
+    EEPROM.begin(512);
+
+    activeProgram = new Setting(PROGRAM_ADDRESS,"/tosia-lights/program");
+    twinkleDelay = new Setting(PROGRAM_ADDRESS+1,"/tosia-lights/twinkleDelay");
+    twinkleBrightness = new Setting(PROGRAM_ADDRESS+2,"/tosia-lights/twinkleBrightness");
+    twinkleSpeed = new Setting(PROGRAM_ADDRESS+3,"/tosia-lights/twinkleSpeed");
+
+    settings.push_back(*activeProgram);
+    settings.push_back(*twinkleDelay);
+    settings.push_back(*twinkleBrightness);
+    settings.push_back(*twinkleSpeed);
+
+  // report on settings
+    std::list<Setting>::iterator it;
+    for (it = settings.begin(); it != settings.end(); it++)
+    {
+        publish("/light/tosia/savedSetting", "topic: " + it->getTopic() + " payload: " + it->get());
+        blink();
+    }
 
   for( int i=0; i<NUM_LEDS;i++){
     const long int timeNow = millis();
@@ -358,23 +445,11 @@ void setup()
     dst[i].b = EEPROM.read(addressBase+2);
   }
 
-  publish("/tosia-lights/IP", WiFi.localIP().toString());
-  //publish("/tosia-lights/RSSI", String(WiFi.RSSI()));
-  publish("/tosia-lights/version", "6");
   blink(4);
 }
 
-
-void loop()
-{
-  while( true ) {
-    client.loop();
-    /*if (!client.connected())
-    {
-      connect();
-    }
-    */
-   const long int timeNow = millis();
+void ledStep(){
+ const long int timeNow = millis();
     for( int i=0; i<NUM_LEDS;i++){
       // in case stuff is different
       if( !now[i].isEqual(dst[i]) ){
@@ -385,26 +460,103 @@ void loop()
         hsv2rgb_rainbow(now[i].toColor(), leds[i]);
       }
     }
-    FastLED.show();
-    delay(2);
+  
+}
 
-    bool somethingChanged = false;
-    for( int i=0; i<NUM_LEDS;i++){
-      if( timeNow - lastChanged[i] > 3000 ){
-        somethingChanged = true;
-        lastChanged[i] = timeNow;
-        const int baseAddress = i*3;
-        EEPROM.write(baseAddress,now[i].h);
-        EEPROM.write(baseAddress+1,now[i].s);
-        EEPROM.write(baseAddress+2,now[i].b);
+void saveLeds(){
+   const long int timeNow = millis();
+      bool somethingChanged = false;
+      for( int i=0; i<NUM_LEDS;i++){
+        if( timeNow - lastChanged[i] > 3000 ){
+          somethingChanged = true;
+          lastChanged[i] = timeNow;
+          const int baseAddress = i*3;
+          EEPROM.write(baseAddress,now[i].h);
+          EEPROM.write(baseAddress+1,now[i].s);
+          EEPROM.write(baseAddress+2,now[i].b);
+        }
       }
-    }
 
-    if(somethingChanged){
-        EEPROM.commit();
-    }
+      if(somethingChanged){
+          EEPROM.commit();
+      }
+}
 
-    ArduinoOTA.handle();
+long int lastUpdate = 0;
+
+boolean isElapsed( long int duration ){
+  const long int elapsed = millis() - lastUpdate;
+  return elapsed > duration; 
+}
+
+void update(){
+  lastUpdate = millis();
+}
+
+void loop()
+{
+  lastUpdate = millis();
+  while( true ) {
+    client.loop();
+    /*if (!client.connected())
+    {
+      connect();
+    }
+    */
+
+
+  int randomPosition = random(NUM_LEDS);
+  switch (activeProgram->get())
+  {
+  case 0:
+    ledStep();
+    saveLeds();
+    break;
+  case 1:
+    dst[randomPosition].b=255;
+    speed[randomPosition]=0;
+    if( randomPosition > 0 ){
+      dst[randomPosition-1].b=128;
+      speed[randomPosition-1]=0;
+    }
+    if( randomPosition<NUM_LEDS){
+      dst[randomPosition+1].b=128;
+      speed[randomPosition+1]=0;
+    }
+    ledStep();
+
+    dst[randomPosition].b=0;
+    speed[randomPosition]=twinkleSpeed->get();
+    if( randomPosition > 0 ){
+      dst[randomPosition-1].b=0;
+      speed[randomPosition-1]=twinkleSpeed->get();
+    }
+    if( randomPosition<NUM_LEDS){
+      dst[randomPosition+1].b=0;
+      speed[randomPosition+1]=twinkleSpeed->get();
+    }
+    ledStep();
+  case 2:
+    if( isElapsed(150) ){
+      dst[randomPosition].b=twinkleBrightness->get();
+      speed[randomPosition]=0;
+      ledStep();
+
+      dst[randomPosition].b=0;
+      speed[randomPosition]=twinkleSpeed->get();
+      
+      update();
+    }
+    ledStep();
+    break;
+  default:
+    break;
+  }
+
+  FastLED.show();
+  delay(2);
+
+  ArduinoOTA.handle();
 
 /*    if (oldHue != hue || oldSaturation != saturation || oldBrightness != brightness)
     {
