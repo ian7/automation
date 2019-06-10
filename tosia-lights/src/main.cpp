@@ -47,6 +47,7 @@ int oldRed = red;
 int oldGreen = green;
 int oldBlue = blue;
 
+
 void blink( int times = 1, int length = 50 );
 
 void publish(const String &topic, const String &payload)
@@ -58,8 +59,35 @@ void publish(const String &topic, const String &payload)
     client.publish((char *)topicChars, (char *)payloadChars); //,false,1);
 }
 
+class Timer{
+  private:
+    long int stamp;
+    long int time;
+  public:
+    Timer(long int time =-1 ){
+        setTime( time );
+        start();
+    }
+    void setTime( long int time ){
+      this->time = time; 
+    }
+    void start( long int time = -1){
+      if( time != -1 ){
+        setTime( time );
+      }
+      this->stamp = millis();
+    }
+    boolean isElapsed(){
+      const long int now = millis();
+      const long int threshold = this->stamp + this->time;
+      return( now > threshold );
+    }
+};
+
+Timer watchdogTimer(10000);
+
 class SavedValue { 
-  private: 
+  protected: 
     int address;
     int value;
   public:
@@ -90,8 +118,15 @@ class Setting : public SavedValue {
     int get(){
       return SavedValue::get()*scale;
     }
+    double getDouble(){
+      const double doubleValue = (double)SavedValue::get();
+      return doubleValue*scale;
+    }
     void set(int value){
-      return SavedValue::set(value/scale);
+      SavedValue::set(value/scale);
+    }
+    void setFloat( float value ){
+      SavedValue::set((int) (value/scale));
     }
     String getTopic(){
       return topic;
@@ -190,11 +225,17 @@ double speed[NUM_LEDS];
 long int lastChanged[NUM_LEDS];
 
 
-std::list<Setting> settings;
+std::list<Setting *> settings;
 Setting * activeProgram;
 Setting * twinkleDelay;
 Setting * twinkleBrightness;
 Setting * twinkleSpeed;
+Setting * breathBright;
+Setting * breathDim;
+Setting * breathInhaled;
+Setting * breathExhaled; 
+Setting * breathInSpeed;
+Setting * breathExSpeed; 
 
 
 // this is defined in wifi-password.h
@@ -206,13 +247,16 @@ CRGB leds[NUM_LEDS];
 
 void messageReceived(const String topic, const String payload)
 {
-  
+  if (topic == String("/heartbeat")){
+      watchdogTimer.start();
+  }
+
   // let's iterate over settings
-  std::list<Setting>::iterator it;
+  std::list<Setting *>::iterator it;
   for (it = settings.begin(); it != settings.end(); it++)
   {
-    if( topic == it->getTopic()){
-      it->set(payload.toInt());
+    if( topic == (*it)->getTopic()){
+      (*it)->setFloat(payload.toFloat());
       publish("/light/tosia/ack", "topic: " + topic + " payload: " + payload);
       blink();
     }  
@@ -344,14 +388,15 @@ void connect()
 
   while (WiFi.status() != WL_CONNECTED)
   {
-    delay(200);
+    delay(100);
     //ESP.restart();
   }
   while (!client.connect("tosia-lights"))
   {
-    delay(200);
+    delay(100);
   }
   client.subscribe("/tosia-lights/#");
+  client.subscribe("/heartbeat/#");
 }
 
 #define LED 2
@@ -412,7 +457,7 @@ void setup()
 
     publish("/tosia-lights/IP", WiFi.localIP().toString());
     publish("/tosia-lights/RSSI", String(WiFi.RSSI()));
-    publish("/tosia-lights/version", "10");
+    publish("/tosia-lights/version", "12");
 
     EEPROM.begin(512);
 
@@ -420,17 +465,29 @@ void setup()
     twinkleDelay = new Setting(PROGRAM_ADDRESS+1,"/tosia-lights/twinkleDelay");
     twinkleBrightness = new Setting(PROGRAM_ADDRESS+2,"/tosia-lights/twinkleBrightness");
     twinkleSpeed = new Setting(PROGRAM_ADDRESS+3,"/tosia-lights/twinkleSpeed");
+    breathBright = new Setting(PROGRAM_ADDRESS+4,"/tosia-lights/breathBright");
+    breathDim = new Setting(PROGRAM_ADDRESS+5,"/tosia-lights/breathDim");
+    breathInhaled = new Setting(PROGRAM_ADDRESS+5,"/tosia-lights/breathInhaled",100);
+    breathExhaled = new Setting(PROGRAM_ADDRESS+6,"/tosia-lights/breathExhaled",100);
+    breathInSpeed = new Setting(PROGRAM_ADDRESS+7,"/tosia-lights/breathInSpeed",0.1);
+    breathExSpeed = new Setting(PROGRAM_ADDRESS+8,"/tosia-lights/breathExSpeed",0.1);
 
-    settings.push_back(*activeProgram);
-    settings.push_back(*twinkleDelay);
-    settings.push_back(*twinkleBrightness);
-    settings.push_back(*twinkleSpeed);
+    settings.push_back(activeProgram);
+    settings.push_back(twinkleDelay);
+    settings.push_back(twinkleBrightness);
+    settings.push_back(twinkleSpeed);
+    settings.push_back(breathBright);
+    settings.push_back(breathDim);
+    settings.push_back(breathInhaled);
+    settings.push_back(breathExhaled);
+    settings.push_back(breathInSpeed);
+    settings.push_back(breathExSpeed);
 
   // report on settings
-    std::list<Setting>::iterator it;
+    std::list<Setting *>::iterator it;
     for (it = settings.begin(); it != settings.end(); it++)
     {
-        publish("/light/tosia/savedSetting", "topic: " + it->getTopic() + " payload: " + it->get());
+        publish("/light/tosia/savedSetting", "topic: " + (*it)->getTopic() + " payload: " + (*it)->get());
         blink();
     }
 
@@ -495,101 +552,140 @@ void update(){
 
 void loop()
 {
+  boolean inhaled = false;
   lastUpdate = millis();
+
+  Timer inhaleTimer;
+  Timer exhaleTimer;
+  Timer debugTimer(2000);
+  Timer twinkleTimer(twinkleDelay->get());
+  // 10 seconds to get it
+
   while( true ) {
     client.loop();
-    /*if (!client.connected())
+    if (!client.connected())
     {
       connect();
     }
-    */
+    
+   if( debugTimer.isElapsed() ){
+     //publish("/tosia-lights/debug","program: " + String(activeProgram->get()));
+     debugTimer.start();
+   }
 
 
-  int randomPosition = random(NUM_LEDS);
-  switch (activeProgram->get())
-  {
-  case 0:
-    ledStep();
-    saveLeds();
-    break;
-  case 1:
-    dst[randomPosition].b=255;
-    speed[randomPosition]=0;
-    if( randomPosition > 0 ){
-      dst[randomPosition-1].b=128;
-      speed[randomPosition-1]=0;
-    }
-    if( randomPosition<NUM_LEDS){
-      dst[randomPosition+1].b=128;
-      speed[randomPosition+1]=0;
-    }
-    ledStep();
-
-    dst[randomPosition].b=0;
-    speed[randomPosition]=twinkleSpeed->get();
-    if( randomPosition > 0 ){
-      dst[randomPosition-1].b=0;
-      speed[randomPosition-1]=twinkleSpeed->get();
-    }
-    if( randomPosition<NUM_LEDS){
-      dst[randomPosition+1].b=0;
-      speed[randomPosition+1]=twinkleSpeed->get();
-    }
-    ledStep();
-  case 2:
-    if( isElapsed(150) ){
-      dst[randomPosition].b=twinkleBrightness->get();
+    int randomPosition = random(NUM_LEDS);
+    switch (activeProgram->get())
+    {
+    case 0:
+      ledStep();
+      saveLeds();
+      break;
+    case 1:
+      dst[randomPosition].b=255;
       speed[randomPosition]=0;
+      if( randomPosition > 0 ){
+        dst[randomPosition-1].b=128;
+        speed[randomPosition-1]=0;
+      }
+      if( randomPosition<NUM_LEDS){
+        dst[randomPosition+1].b=128;
+        speed[randomPosition+1]=0;
+      }
       ledStep();
 
       dst[randomPosition].b=0;
       speed[randomPosition]=twinkleSpeed->get();
-      
-      update();
-    }
-    ledStep();
-    break;
-  default:
-    break;
-  }
-
-  FastLED.show();
-  delay(2);
-
-  ArduinoOTA.handle();
-
-/*    if (oldHue != hue || oldSaturation != saturation || oldBrightness != brightness)
-    {
-      oldHue = hue;
-      oldBrightness = brightness;
-      oldSaturation = saturation;
-
-      // First slide the led in one direction
-      for (int i = 0; i < NUM_LEDS; i++)
-      {
-        // Set the i'th led to red
-        CHSV newColor = CHSV(oldHue, oldSaturation, oldBrightness);
-        hsv2rgb_rainbow(newColor, leds[i]);
-        // Show the leds
+      if( randomPosition > 0 ){
+        dst[randomPosition-1].b=0;
+        speed[randomPosition-1]=twinkleSpeed->get();
       }
-      FastLED.show();
-    }
-*/
-/*    if (irrecv.decode(&results))
-    {
-      if (results.decode_type == NEC)
-      {
-        uint64_t number = results.value;
-        unsigned long long1 = (unsigned long)((number & 0xFFFF0000) >> 16);
-        unsigned long long2 = (unsigned long)((number & 0x0000FFFF));
-
-        String hex = String(long1, HEX) + String(long2, HEX); // six octets
-
-        publish("/light/tosia/irReceiver", hex);
+      if( randomPosition<NUM_LEDS){
+        dst[randomPosition+1].b=0;
+        speed[randomPosition+1]=twinkleSpeed->get();
       }
+      ledStep();
+      break;
+    case 2:
+      if( twinkleTimer.isElapsed() ){
+        dst[randomPosition].b=twinkleBrightness->get();
+        speed[randomPosition]=0;
+        ledStep();
 
-      irrecv.resume(); // Receive the next value
+        dst[randomPosition].b=0;
+        speed[randomPosition]=twinkleSpeed->get();
+        
+        twinkleTimer.start(twinkleDelay->get());
+       publish("/tosia-lights/debug","twinkle: " + String(randomPosition));
+      }
+      ledStep();
+      break;
+    case 3:
+      if( !inhaled && exhaleTimer.isElapsed()){
+          for( int i=0;i<NUM_LEDS;i++ ){
+            dst[i].b = breathBright->get();
+            speed[i]=breathInSpeed->getDouble();
+          }
+          inhaleTimer.start(breathInhaled->get());
+          inhaled = true;
+         //publish("/tosia-lights/debug","inhale: " + String(breathInhaled->get()));
+      }
+      if( inhaled && inhaleTimer.isElapsed()){
+          for( int i=0;i<NUM_LEDS;i++ ){
+            dst[i].b = breathDim->get();
+            speed[i]=breathExSpeed->getDouble();
+          }
+          exhaleTimer.start(breathExhaled->get());
+         // publish("/tosia-lights/debug","exhale: " + String(breathExhaled->get()));
+          inhaled = false;
+      }
+      ledStep();
+      break;
+    default:
+      break;
     }
-*/
+
+    FastLED.show();
+    delay(2);
+
+    ArduinoOTA.handle();
+
+    if( watchdogTimer.isElapsed() ){
+      ESP.reset();
+    }
+
+  /*    if (oldHue != hue || oldSaturation != saturation || oldBrightness != brightness)
+      {
+        oldHue = hue;
+        oldBrightness = brightness;
+        oldSaturation = saturation;
+
+        // First slide the led in one direction
+        for (int i = 0; i < NUM_LEDS; i++)
+        {
+          // Set the i'th led to red
+          CHSV newColor = CHSV(oldHue, oldSaturation, oldBrightness);
+          hsv2rgb_rainbow(newColor, leds[i]);
+          // Show the leds
+        }
+        FastLED.show();
+      }
+  */
+  /*    if (irrecv.decode(&results))
+      {
+        if (results.decode_type == NEC)
+        {
+          uint64_t number = results.value;
+          unsigned long long1 = (unsigned long)((number & 0xFFFF0000) >> 16);
+          unsigned long long2 = (unsigned long)((number & 0x0000FFFF));
+
+          String hex = String(long1, HEX) + String(long2, HEX); // six octets
+
+          publish("/light/tosia/irReceiver", hex);
+        }
+
+        irrecv.resume(); // Receive the next value
+      }
+  */
   }
 }
