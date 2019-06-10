@@ -49,6 +49,7 @@ int oldBlue = blue;
 
 
 void blink( int times = 1, int length = 50 );
+void reportSettings();
 
 void publish(const String &topic, const String &payload)
 {
@@ -340,7 +341,7 @@ void messageReceived(const String topic, const String payload)
 
     publish("/light/tosia/ack", "h: " + String(hue) + " s: " + String(saturation) + " b: " + String(brightness));
   }
-  if (topic == String("/light/tosia/brightness"))
+  if (topic == String("/tosia-lights/brightness"))
   {
     int brightness = payload.toInt();
     for( int i=0;i<NUM_LEDS;i++){
@@ -350,6 +351,19 @@ void messageReceived(const String topic, const String payload)
 
     publish("/light/tosia/ack", "h: " + String(hue) + " s: " + String(saturation) + " b: " + String(brightness));
   }
+
+  if (topic == String("/tosia-lights/reportSettings"))
+  {
+    reportSettings();
+    publish("/light/tosia/ack", "h: " + String(hue) + " s: " + String(saturation) + " b: " + String(brightness));
+  }
+
+  if (topic == String("/tosia-lights/reset"))
+  {
+    ESP.restart();
+    publish("/light/tosia/ack", "h: " + String(hue) + " s: " + String(saturation) + " b: " + String(brightness));
+  }
+
 
   return;
 
@@ -427,6 +441,16 @@ void rainbow(){
   }
 }
 
+
+void reportSettings(){
+    std::list<Setting *>::iterator it;
+    for (it = settings.begin(); it != settings.end(); it++)
+    {
+        publish("/light/tosia/savedSetting", "topic: " + (*it)->getTopic() + " payload: " + (*it)->getDouble());
+        blink();
+    }
+}
+
 void setup()
 {
   pinMode(LED,OUTPUT);
@@ -457,7 +481,7 @@ void setup()
 
     publish("/tosia-lights/IP", WiFi.localIP().toString());
     publish("/tosia-lights/RSSI", String(WiFi.RSSI()));
-    publish("/tosia-lights/version", "12");
+    publish("/tosia-lights/version", "13");
 
     EEPROM.begin(512);
 
@@ -484,12 +508,7 @@ void setup()
     settings.push_back(breathExSpeed);
 
   // report on settings
-    std::list<Setting *>::iterator it;
-    for (it = settings.begin(); it != settings.end(); it++)
-    {
-        publish("/light/tosia/savedSetting", "topic: " + (*it)->getTopic() + " payload: " + (*it)->get());
-        blink();
-    }
+  reportSettings();
 
   for( int i=0; i<NUM_LEDS;i++){
     const long int timeNow = millis();
