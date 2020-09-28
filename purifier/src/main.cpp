@@ -1,7 +1,8 @@
 
-#define _GLIBCXX_USE_C99 1
+//#define _GLIBCXX_USE_C99 1
 
 #include <Arduino.h>
+#include <ArduinoOTA.h>
 
 #define LED_PIN 2
 #define LED_ON 0
@@ -11,18 +12,21 @@
 #define OFF false
 
 #include <ESP8266WiFi.h>
-#include <WiFiUdp.h>
-#include <ESP8266mDNS.h>
-#include <ArduinoOTA.h>
-#include "wifi-password.h"
-
 #include <PubSubClient.h>
+#include <ESP8266mDNS.h>
+#include "wifi-password.h"
 
 #include <string>
 #include <Adafruit_PWMServoDriver.h>
 #include <Wire.h>
 
 #include "encoder.h"
+
+#include <DHT.h>
+
+#define DHTPIN 2
+//#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHT11);
 
 using namespace std;
 
@@ -31,13 +35,13 @@ PubSubClient client(net);
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
 Adafruit_PWMServoDriver leds = Adafruit_PWMServoDriver(0x41);
 
-void setFans( int value );
+void setFans(int value);
 
-Encoder encoder(12, 13,0,31);
+Encoder encoder(12, 13, 0, 31);
 
-int dark[] = {0,0,0,0,0};
-int dim[] = {3,3,3,6,6};
-int full[] = {80,20,25,70,60};
+int dark[] = {0, 0, 0, 0, 0};
+int dim[] = {3, 3, 3, 6, 6};
+int full[] = {80, 20, 25, 70, 60};
 
 unsigned long pollTimestamp = 0;
 unsigned long pollDelay = 30000;
@@ -57,11 +61,11 @@ void blink(int count)
     for (int i = 0; i < count; i++)
     {
         digitalWrite(LED_PIN, LED_ON);
-        delay(100);
+        delay(20);
         digitalWrite(LED_PIN, LED_OFF);
-        delay(500);
+        delay(100);
     }
-    delay(1000);
+    //delay(1000);
 }
 
 void off()
@@ -79,9 +83,8 @@ void set(int i, int val)
 
 void setInv(int i, int val)
 {
-    pwm.setPWM(i, 4090-val, 4090);
+    pwm.setPWM(i, 4090 - val, 4090);
 }
-
 
 void setLed(int i, int val)
 {
@@ -178,6 +181,13 @@ void messageReceived(const String topic, const String payload)
         publish("/purifier/ack", "pm: " + payload);
     }
 
+    if (topic == String("/purifier/temperature"))
+    {
+        float h = dht.readHumidity();
+        float t = dht.readTemperature();
+        publish("/air2/humidity", String(h));
+        publish("/air2/temperature", String(t));
+    }
 }
 
 void pubSubCallback(char *topic, byte *payload, unsigned int length)
@@ -189,8 +199,11 @@ void pubSubCallback(char *topic, byte *payload, unsigned int length)
 
 void connect()
 {
+    WiFi.setPhyMode(WIFI_PHY_MODE_11B);
+    WiFi.setSleepMode(WIFI_NONE_SLEEP);
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, pass);
+    client.setServer("10.10.4.1", 1883);
 
     while (WiFi.status() != WL_CONNECTED)
     {
@@ -198,7 +211,6 @@ void connect()
         blink(2);
     }
 
-    client.setServer("10.10.4.1", 1883);
     while (!client.connect("purifier"))
     {
         delay(200);
@@ -215,7 +227,7 @@ void setup()
 {
     pinMode(2, OUTPUT);
     pinMode(14, OUTPUT);
-    Serial.begin(9600);
+    //    Serial.begin(9600);
     connect();
 
     ArduinoOTA.onStart([]() {
@@ -251,35 +263,44 @@ void setup()
 
 int lastValue = -1;
 
-void setFans( int value ){
-    set( 0, value );
-    set( 1, value );
-    set( 2, value );
-    set( 3, value/3.5 );
+void setFans(int value)
+{
+    set(0, value);
+    set(1, value);
+    set(2, value);
+    set(3, value / 3.5);
 }
 
-void ledsOff(){
-    for( int i=0;i<=5;i++){
+void ledsOff()
+{
+    for (int i = 0; i <= 5; i++)
+    {
         setLed(i, 0);
     }
 }
 
-void setLeds( int value, int * brightness ){
+void setLeds(int value, int *brightness)
+{
     ledsOff();
-    if( value > 0 ){
-        setLed(0,brightness[0]);
+    if (value > 0)
+    {
+        setLed(0, brightness[0]);
     }
-    if( value > 1300 ){
-        setLed(1,brightness[1]);
+    if (value > 1300)
+    {
+        setLed(1, brightness[1]);
     }
-    if( value > 2100 ){
-        setLed(2,brightness[2]);
+    if (value > 2100)
+    {
+        setLed(2, brightness[2]);
     }
-    if( value > 3000){
-        setLed(3,brightness[3]);
+    if (value > 3000)
+    {
+        setLed(3, brightness[3]);
     }
-    if( value > 4000){
-        setLed(4,brightness[4]);
+    if (value > 4000)
+    {
+        setLed(4, brightness[4]);
     }
 }
 
@@ -296,17 +317,18 @@ void loop()
 
     int now = millis();
 
-    if( encoder.check() ) {
-        int power = encoder.getPosition()*100+995;
-        if( power < 1000 ){
+    if (encoder.check())
+    {
+        int power = encoder.getPosition() * 100 + 995;
+        if (power < 1000)
+        {
             power = 0;
         }
         publish("/purifier/power", String(power));
         setFans(power);
-        setLeds(power,full);
+        setLeds(power, full);
         ledStamp = now;
     }
-
 
     if (timestamp + 10 < now)
     {
@@ -315,19 +337,21 @@ void loop()
         {
             publish("/purifier/button", String(value));
             lastValue = value;
-            if( value == 0 ){
+            if (value == 0)
+            {
                 set(0, 0);
                 set(1, 0);
                 set(2, 0);
                 set(3, 0);
-                setLeds(0,full);
+                setLeds(0, full);
                 ledStamp = now;
             }
         }
         timestamp = now;
     }
-    if( ledStamp + 3000 < now ){
-        setLeds( pm*30, dim);
+    if (ledStamp + 3000 < now)
+    {
+        setLeds(pm * 30, dim);
         ledStamp = now;
     }
 }
