@@ -1,4 +1,5 @@
 
+
 //#define _GLIBCXX_USE_C99 1
 
 #include <Arduino.h>
@@ -24,6 +25,8 @@
 
 #include <DHT.h>
 
+#include <EEPROM.h>
+
 #define DHTPIN 2
 //#define DHTTYPE DHT11
 DHT dht(DHTPIN, DHT11);
@@ -46,6 +49,8 @@ int full[] = {80, 20, 25, 70, 60};
 unsigned long pollTimestamp = 0;
 unsigned long pollDelay = 30000;
 int pm = 10;
+int lastFansValue=-1;
+int lastFansTimestamp=-1;
 
 void publish(const String &topic, const String &payload)
 {
@@ -97,6 +102,9 @@ void messageReceived(const String topic, const String payload)
     {
         int power = payload.toInt();
         publish("/air/ack", "fans: " + payload);
+        if( lastFansTimestamp==-1 ){
+            lastFansTimestamp=millis();
+        }
         setFans(power);
     }
     if (topic == String("/purifier/fansi"))
@@ -223,8 +231,19 @@ void connect()
 
 int timestamp;
 
+void setFans(int value)
+{
+    lastFansValue = value;
+    set(0, value);
+    set(1, value);
+    set(2, value);
+    set(3, value / 3.5);
+}
+
+
 void setup()
 {
+    EEPROM.begin(512);
     pinMode(2, OUTPUT);
     pinMode(14, OUTPUT);
     //    Serial.begin(9600);
@@ -249,7 +268,7 @@ void setup()
     ArduinoOTA.begin();
 
     publish("/purifier/IP", WiFi.localIP().toString());
-    publish("/purifier/version", "11");
+    publish("/purifier/version", "14");
     blink(2);
 
     pwm.begin();
@@ -259,17 +278,18 @@ void setup()
     Wire.setClock(100000);
     timestamp = millis();
     pinMode(15, INPUT);
+
+    char b[4];
+    for( int i=0;i<4;i++){
+        b[i]=EEPROM.read(100+i);
+    }
+    long restoredFanValue = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | (b[3]);
+
+    publish("/purifier/ack/restored",String(restoredFanValue));
+    setFans(restoredFanValue);
 }
 
 int lastValue = -1;
-
-void setFans(int value)
-{
-    set(0, value);
-    set(1, value);
-    set(2, value);
-    set(3, value / 3.5);
-}
 
 void ledsOff()
 {
@@ -325,12 +345,14 @@ void loop()
             power = 0;
         }
         publish("/purifier/power", String(power));
+        lastFansTimestamp=millis();
+
         setFans(power);
         setLeds(power, full);
         ledStamp = now;
     }
 
-    if (timestamp + 10 < now)
+/*    if (timestamp + 10 < now)
     {
         int value = digitalRead(15);
         if (lastValue != value)
@@ -349,9 +371,27 @@ void loop()
         }
         timestamp = now;
     }
+    */
     if (ledStamp + 3000 < now)
     {
         setLeds(pm * 30, dim);
         ledStamp = now;
+    }
+
+    if( lastFansTimestamp != -1 && (lastFansTimestamp + 3000 < millis())){
+        lastFansTimestamp=-1;
+        char b[4];
+        b[0] = (lastFansValue >> 24) & 0xFF;
+        b[1] = (lastFansValue >> 16) & 0xFF;
+        b[2] = (lastFansValue >> 8) & 0xFF;
+        b[3] = (lastFansValue) & 0xFF;
+
+        //const int lower = lastFansValue & 0x000000ff;
+        //const int higher = (lastFansValue & 0x0000ff00) > 8;
+        for( int i=0;i<4;i++){
+            EEPROM.write(100+i,b[i]);
+        }
+        publish( "/purifier/ack/saved",String("saved: ")+lastFansValue);
+        EEPROM.commit();
     }
 }
