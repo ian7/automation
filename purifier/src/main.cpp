@@ -27,7 +27,7 @@
 
 #include <EEPROM.h>
 
-#define DHTPIN 2
+#define DHTPIN D5
 //#define DHTTYPE DHT11
 DHT dht(DHTPIN, DHT11);
 
@@ -189,12 +189,12 @@ void messageReceived(const String topic, const String payload)
         publish("/purifier/ack", "pm: " + payload);
     }
 
-    if (topic == String("/purifier/temperature"))
+    if (topic == String("/purifier/temperaturePoll"))
     {
         float h = dht.readHumidity();
         float t = dht.readTemperature();
-        publish("/air2/humidity", String(h));
-        publish("/air2/temperature", String(t));
+        publish("/purifier/humidity", String(h));
+        publish("/purifier/temperature", String(t));
     }
 }
 
@@ -287,6 +287,8 @@ void setup()
 
     publish("/purifier/ack/restored",String(restoredFanValue));
     setFans(restoredFanValue);
+
+    dht.begin();
 }
 
 int lastValue = -1;
