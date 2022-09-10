@@ -13,4 +13,5 @@ class Encoder{
         Encoder(int primaryPin, int secondaryPin, int min, int max);
         bool check();
         int getPosition();
+        void setPosition(int position);
 };

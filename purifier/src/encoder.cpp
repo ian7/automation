@@ -55,3 +55,7 @@
     int Encoder::getPosition(){
         return this->position;
     }
+
+    void Encoder::setPosition(int position){
+        this->position = position;
+    }
